@@ -208,3 +208,4 @@ __marimo__/
 
 # Project runtime outputs
 output/
+inspect_doc.py
