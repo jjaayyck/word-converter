@@ -36,17 +36,20 @@ def _build_main_table() -> FakeTable:
         rows=[
             FakeRow(
                 cells=[
-                    FakeCell("功能名稱"),
+                    FakeCell("編 號"),
+                    FakeCell("功 能"),
                     FakeCell("細胞解碼位點"),
-                    FakeCell("新版代碼"),
+                    FakeCell("解碼型"),
+                    FakeCell("健康優勢評估"),
+                    FakeCell("健康優勢評分"),
                 ]
             ),
-            FakeRow(cells=[FakeCell("運動神經"), FakeCell("CNTF"), FakeCell("")]),
-            FakeRow(cells=[FakeCell("反應速度"), FakeCell("CNTF"), FakeCell("")]),
-            FakeRow(cells=[FakeCell("專注穩定性"), FakeCell("HTR2C"), FakeCell("")]),
-            FakeRow(cells=[FakeCell("專注力"), FakeCell("HTR2C"), FakeCell("")]),
-            FakeRow(cells=[FakeCell("協調性"), FakeCell("α-actinin"), FakeCell("")]),
-            FakeRow(cells=[FakeCell("肢體靈活性"), FakeCell("α-actinin"), FakeCell("")]),
+            FakeRow(cells=[FakeCell("1"), FakeCell("運動神經"), FakeCell("CNTF"), FakeCell("AA"), FakeCell("-"), FakeCell("90")]),
+            FakeRow(cells=[FakeCell("2"), FakeCell("反應速度"), FakeCell("CNTF"), FakeCell("AB"), FakeCell("-"), FakeCell("91")]),
+            FakeRow(cells=[FakeCell("3"), FakeCell("專注穩定性"), FakeCell("HTR2C"), FakeCell("BB"), FakeCell("-"), FakeCell("92")]),
+            FakeRow(cells=[FakeCell("4"), FakeCell("專注力"), FakeCell("HTR2C"), FakeCell("BC"), FakeCell("-"), FakeCell("93")]),
+            FakeRow(cells=[FakeCell("5"), FakeCell("協調性"), FakeCell("α-actinin"), FakeCell("CC"), FakeCell("-"), FakeCell("94")]),
+            FakeRow(cells=[FakeCell("6"), FakeCell("肢體靈活性"), FakeCell("α-actinin"), FakeCell("CD"), FakeCell("-"), FakeCell("95")]),
         ]
     )
 
@@ -121,6 +124,8 @@ def test_convert_cell_codes_only_on_main_table() -> None:
     assert main_table.rows[2].cells[2].text == "RTS001"
     assert non_main_table.rows[0].cells[1].text == "CNTF"
     assert doc.paragraphs[0].text == "段落中 CNTF 不應被替換"
+    assert converter.last_cell_code_report["table_count"] == 2
+    assert converter.last_cell_code_report["main_table_index"] == 1
 
 
 def test_convert_cell_codes_distinguishes_duplicate_legacy_codes() -> None:
@@ -136,3 +141,20 @@ def test_convert_cell_codes_distinguishes_duplicate_legacy_codes() -> None:
     assert main_table.rows[4].cells[2].text == "CCT001"  # 專注力 + HTR2C
     assert main_table.rows[5].cells[2].text == "CD001"  # 協調性 + α-actinin
     assert main_table.rows[6].cells[2].text == "PFB001"  # 肢體靈活性 + α-actinin
+    assert converter.last_cell_code_report["replaced_count"] == 6
+    assert converter.last_cell_code_report["unmapped_features"] == []
+
+
+def test_convert_cell_codes_collects_unmapped_features() -> None:
+    converter = WordReportConverter()
+    main_table = _build_main_table()
+    main_table.rows.append(
+        FakeRow(cells=[FakeCell("7"), FakeCell("不存在功能"), FakeCell("CNTF"), FakeCell("ZZ"), FakeCell("-"), FakeCell("80")])
+    )
+    doc = FakeDocument(paragraphs=[], tables=[main_table])
+
+    converter._convert_cell_codes(doc)
+
+    assert converter.last_cell_code_report["main_table_index"] == 0
+    assert converter.last_cell_code_report["replaced_count"] == 6
+    assert converter.last_cell_code_report["unmapped_features"] == ["不存在功能"]

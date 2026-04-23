@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from docx.document import Document as DocxDocument
-    from docx.table import _Cell, Table
+    from docx.table import _Cell
 from .config import (
     CELL_CODE_MAPPING,
     FIXED_TEXT_MAPPING,
@@ -40,6 +40,7 @@ class WordReportConverter:
         self.table_header_mapping = table_header_mapping or TABLE_HEADER_MAPPING
         self.cell_code_mapping = cell_code_mapping or CELL_CODE_MAPPING
         self.fixed_text_mapping = fixed_text_mapping or FIXED_TEXT_MAPPING
+        self.last_cell_code_report: dict[str, Any] = {}
 
     def convert(self, input_path: str | Path, output_dir: str | Path) -> ConversionResult:
         input_file = Path(input_path)
@@ -153,55 +154,57 @@ class WordReportConverter:
                     self._replace_cell_text(cell, self.table_header_mapping[original])
 
     def _convert_cell_codes(self, document: "DocxDocument") -> None:
-        main_table = self._find_main_table(document)
-        if main_table is None:
-            return
+        expected_main_headers = ["編號", "功能", "細胞解碼位點", "解碼型", "健康優勢評估", "健康優勢評分"]
+        table_reports: list[dict[str, Any]] = []
+        main_table_index: int | None = None
+        replaced_count = 0
+        unmapped_features: list[str] = []
+        seen_unmapped: set[str] = set()
 
-        header_map = self._build_header_index_map(main_table)
-        feature_col = self._find_column_index(header_map, ["功能名稱"])
-        old_code_col = self._find_column_index(header_map, ["細胞解碼位點"])
-        target_col = self._find_column_index(header_map, ["新版代碼", "細胞代碼", "代碼"])
+        for index, table in enumerate(document.tables):
+            header_cells = table.rows[0].cells if table.rows else []
+            headers = [cell.text.strip() for cell in header_cells]
+            normalized_headers = [self._normalize_label(header) for header in headers]
 
-        if feature_col is None or old_code_col is None:
-            return
-        if target_col is None:
-            target_col = old_code_col
+            is_main_table = len(normalized_headers) >= 6 and all(
+                normalized_headers[col] == expected_main_headers[col] for col in range(6)
+            )
+            table_reports.append(
+                {
+                    "table_index": index,
+                    "headers": headers,
+                    "is_main_table": is_main_table,
+                }
+            )
 
-        for row in main_table.rows[1:]:
-            if feature_col >= len(row.cells) or old_code_col >= len(row.cells) or target_col >= len(row.cells):
+            if not is_main_table or main_table_index is not None:
                 continue
 
-            feature_name = row.cells[feature_col].text.strip()
-            old_code = row.cells[old_code_col].text.strip()
-            if not feature_name or not old_code:
-                continue
+            main_table_index = index
+            for row in table.rows[1:]:
+                if len(row.cells) < 3:
+                    continue
 
-            new_code = self.cell_code_mapping.get((feature_name, old_code))
-            if new_code:
-                self._replace_cell_text(row.cells[target_col], new_code)
+                feature_name = row.cells[1].text.strip()
+                old_code = row.cells[2].text.strip()
+                if not feature_name or not old_code:
+                    continue
 
-    def _find_main_table(self, document: "DocxDocument") -> "Table | None":
-        for table in document.tables:
-            header_map = self._build_header_index_map(table)
-            has_feature = self._find_column_index(header_map, ["功能名稱"]) is not None
-            has_old_code = self._find_column_index(header_map, ["細胞解碼位點"]) is not None
-            if has_feature and has_old_code:
-                return table
-        return None
+                new_code = self.cell_code_mapping.get((feature_name, old_code))
+                if new_code:
+                    self._replace_cell_text(row.cells[2], new_code)
+                    replaced_count += 1
+                elif feature_name not in seen_unmapped:
+                    seen_unmapped.add(feature_name)
+                    unmapped_features.append(feature_name)
 
-    def _build_header_index_map(self, table: "Table") -> dict[str, int]:
-        if not table.rows:
-            return {}
-
-        header_cells = table.rows[0].cells
-        return {self._normalize_label(cell.text.strip()): idx for idx, cell in enumerate(header_cells)}
-
-    def _find_column_index(self, header_map: dict[str, int], candidates: list[str]) -> int | None:
-        for candidate in candidates:
-            idx = header_map.get(self._normalize_label(candidate))
-            if idx is not None:
-                return idx
-        return None
+        self.last_cell_code_report = {
+            "table_count": len(document.tables),
+            "tables": table_reports,
+            "main_table_index": main_table_index,
+            "replaced_count": replaced_count,
+            "unmapped_features": unmapped_features,
+        }
 
     def _apply_fixed_text(self, document: "DocxDocument") -> None:
         for paragraph in document.paragraphs:
