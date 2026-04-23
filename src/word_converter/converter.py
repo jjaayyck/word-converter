@@ -6,10 +6,11 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from docx import Document
-from docx.document import Document as DocxDocument
-from docx.table import _Cell, Table
+from typing import TYPE_CHECKING, Any
 
+if TYPE_CHECKING:
+    from docx.document import Document as DocxDocument
+    from docx.table import _Cell, Table
 from .config import (
     CELL_CODE_MAPPING,
     FIXED_TEXT_MAPPING,
@@ -45,7 +46,7 @@ class WordReportConverter:
         if not input_file.exists():
             raise FileNotFoundError(f"Input file not found: {input_file}")
 
-        document = Document(str(input_file))
+        document = self._load_document(input_file)
         name, sample_id = self._extract_identity(document)
 
         self._convert_table_headers(document)
@@ -64,7 +65,19 @@ class WordReportConverter:
             sample_id=sample_id,
         )
 
-    def _extract_identity(self, document: DocxDocument) -> tuple[str, str]:
+
+    @staticmethod
+    def _load_document(input_file: Path) -> Any:
+        try:
+            from docx import Document
+        except ModuleNotFoundError as exc:
+            raise ModuleNotFoundError(
+                "python-docx is required. Install dependencies with: pip install -r requirements.txt"
+            ) from exc
+
+        return Document(str(input_file))
+
+    def _extract_identity(self, document: "DocxDocument") -> tuple[str, str]:
         full_text = "\n".join(p.text for p in document.paragraphs if p.text)
         name = self._extract_by_labels(full_text, NAME_LABELS)
         sample_id = self._extract_by_labels(full_text, SAMPLE_ID_LABELS)
@@ -95,7 +108,7 @@ class WordReportConverter:
                 return match.group(1).strip()
         return None
 
-    def _extract_identity_from_table(self, table: Table) -> tuple[str | None, str | None]:
+    def _extract_identity_from_table(self, table: "Table") -> tuple[str | None, str | None]:
         name: str | None = None
         sample_id: str | None = None
 
@@ -108,7 +121,7 @@ class WordReportConverter:
                     sample_id = sample_id or cells[idx + 1].strip()
         return name, sample_id
 
-    def _convert_table_headers(self, document: DocxDocument) -> None:
+    def _convert_table_headers(self, document: "DocxDocument") -> None:
         for table in document.tables:
             if not table.rows:
                 continue
@@ -117,7 +130,7 @@ class WordReportConverter:
                 if original in self.table_header_mapping:
                     self._replace_cell_text(cell, self.table_header_mapping[original])
 
-    def _convert_cell_codes(self, document: DocxDocument) -> None:
+    def _convert_cell_codes(self, document: "DocxDocument") -> None:
         code_pattern = re.compile(r"\b([A-Z]\d{2}|[A-Z]\d{2,3})\b")
 
         def replace_codes(text: str) -> str:
@@ -139,7 +152,7 @@ class WordReportConverter:
                     if new_text != cell.text:
                         self._replace_cell_text(cell, new_text)
 
-    def _apply_fixed_text(self, document: DocxDocument) -> None:
+    def _apply_fixed_text(self, document: "DocxDocument") -> None:
         for paragraph in document.paragraphs:
             text = paragraph.text
             for old, new in self.fixed_text_mapping.items():
@@ -148,7 +161,7 @@ class WordReportConverter:
                 paragraph.text = text
 
     @staticmethod
-    def _replace_cell_text(cell: _Cell, text: str) -> None:
+    def _replace_cell_text(cell: "_Cell", text: str) -> None:
         if cell.paragraphs:
             cell.paragraphs[0].text = text
             for paragraph in cell.paragraphs[1:]:

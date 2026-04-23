@@ -21,7 +21,8 @@ word-converter/
 │     ├─ __init__.py
 │     ├─ cli.py
 │     ├─ config.py
-│     └─ converter.py
+│     ├─ converter.py
+│     └─ mapping_loader.py
 ├─ requirements.txt
 ├─ .gitignore
 └─ README.md
@@ -41,21 +42,27 @@ pip install -r requirements.txt
 PYTHONPATH=src python -m word_converter.cli <輸入檔案.docx> -o <輸出資料夾>
 ```
 
-範例：
+### 使用外部 JSON 對照表（建議正式上線時）
 
 ```bash
-PYTHONPATH=src python -m word_converter.cli ./legacy-report.docx -o ./output
+PYTHONPATH=src python -m word_converter.cli ./legacy-report.docx -o ./output -c ./mapping.json
 ```
 
-## 目前內建轉換規則
+`mapping.json` 範例：
 
-規則定義在 `src/word_converter/config.py`：
-
-- `TABLE_HEADER_MAPPING`: 表格欄位名稱映射。
-- `CELL_CODE_MAPPING`: 細胞解碼位點代碼映射。
-- `FIXED_TEXT_MAPPING`: 固定文案替換。
-
-你可以直接修改 `config.py` 來符合你的正式對照表。
+```json
+{
+  "table_header_mapping": {
+    "姓名": "受測者姓名"
+  },
+  "cell_code_mapping": {
+    "A01": "TG-A01"
+  },
+  "fixed_text_mapping": {
+    "本報告僅供參考": "本報告為天賦 30 項分析結果，僅供健康管理參考。"
+  }
+}
+```
 
 ## 功能對應需求
 
@@ -67,7 +74,15 @@ PYTHONPATH=src python -m word_converter.cli ./legacy-report.docx -o ./output
 - ✅ 套用新版固定文案
 - ✅ 輸出新的 `.docx`
 
+## MVP 判斷
+
+目前屬於 **可用 MVP**（可處理標準化模板文件），但建議上線前補強：
+
+1. 以真實樣本檔建立測試案例（含多種版型）。
+2. 若需保留複雜 run-level 樣式，需改為更細粒度文字替換策略。
+3. 補齊批次處理與錯誤報表（例如輸出轉換失敗清單）。
+
 ## 注意事項
 
-- 本工具以文字內容替換為主；若你的報告有複雜樣式（run-level 格式、特殊合併表格等），可能需要再加強保留格式的策略。
-- 若你提供實際「欄位對照表 / 代碼對照表 / 固定文案」檔案，我可以幫你改成讀取外部 JSON/CSV 並完整對齊正式規格。
+- `python-docx` 採段落/儲存格文字重寫時，可能影響部分原始文字樣式。
+- 若你提供實際「欄位對照表 / 代碼對照表 / 固定文案」，可直接用 `-c mapping.json` 覆蓋預設規則。
