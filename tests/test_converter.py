@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from src.word_converter.converter import WordReportConverter
 
@@ -13,6 +13,8 @@ class FakeCell:
 @dataclass
 class FakeRow:
     cells: list[FakeCell]
+    height: int | None = None
+    height_rule: int | None = None
 
 
 @dataclass
@@ -29,6 +31,7 @@ class FakeParagraph:
 class FakeDocument:
     paragraphs: list[FakeParagraph]
     tables: list[FakeTable]
+    sections: list[object] = field(default_factory=list)
 
 
 def _build_main_table() -> FakeTable:
@@ -192,3 +195,49 @@ def test_apply_fixed_text_replaces_text_inside_table_cells() -> None:
 
     assert table.rows[0].cells[1].text == "如需進一步解讀，請聯繫專屬顧問或客服中心。"
     assert table.rows[1].cells[1].text == "高分項目代表相對優勢，建議持續強化並轉化為日常表現。"
+
+
+def test_apply_fixed_text_replaces_long_declaration_text() -> None:
+    converter = WordReportConverter()
+    old_text = (
+        "o\t本報告依細胞分子生物學分析及統計資料，以口腔黏膜樣本進行檢測，僅供本次健康管理參考，"
+        "無臨床診斷效力，亦不可作為醫療診斷依據。如有健康疑慮，請諮詢專業醫師。"
+    )
+    doc = FakeDocument(paragraphs=[FakeParagraph(old_text)], tables=[])
+
+    converter._apply_fixed_text(doc)
+
+    assert "本報告所提供之心理天賦優勢分析" in doc.paragraphs[0].text
+    assert doc.paragraphs[0].text.startswith("o\t本報告所提供之心理天賦優勢分析")
+
+
+@dataclass
+class FakeSection:
+    top_margin: int | None = None
+    left_margin: int | None = None
+    right_margin: int | None = None
+    bottom_margin: int | None = None
+
+
+def test_convert_cell_codes_updates_gene_row_height() -> None:
+    converter = WordReportConverter()
+    main_table = _build_main_table()
+    doc = FakeDocument(paragraphs=[], tables=[main_table])
+
+    converter._convert_cell_codes(doc)
+
+    assert main_table.rows[1].height == int(1.9 * 360000)
+    assert main_table.rows[1].height_rule == 2
+
+
+def test_apply_page_layout_updates_margins() -> None:
+    converter = WordReportConverter()
+    section = FakeSection()
+    doc = FakeDocument(paragraphs=[], tables=[], sections=[section])
+
+    converter._apply_page_layout(doc)
+
+    assert section.top_margin == int(0.75 * 360000)
+    assert section.left_margin == int(1.0 * 360000)
+    assert section.right_margin == int(1.0 * 360000)
+    assert section.bottom_margin == int(1.0 * 360000)
