@@ -49,9 +49,7 @@ class WordReportConverter:
         document = self._load_document(input_file)
         name, sample_id = self._extract_identity(document)
 
-        self._convert_table_headers(document)
-        self._convert_cell_codes(document)
-        self._apply_fixed_text(document)
+        # MVP v1: 先完成讀取/擷取/命名/輸出流程，內容轉換下一版再接入。
 
         output_dir_path = Path(output_dir)
         output_dir_path.mkdir(parents=True, exist_ok=True)
