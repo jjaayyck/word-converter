@@ -67,6 +67,7 @@ class WordReportConverter:
         self._convert_table_headers(document)
         self._convert_cell_codes(document)
         self._apply_fixed_text(document)
+        self._replace_recommendation_section(document, name)
         self._apply_table_styles(document)
         self._apply_page_layout(document)
         self._apply_global_font(document)
@@ -241,6 +242,93 @@ class WordReportConverter:
         for old, new in self.fixed_text_mapping.items():
             replaced = replaced.replace(old, new)
         return replaced
+
+    def _replace_recommendation_section(self, document: "DocxDocument", name: str) -> None:
+        paragraphs = list(getattr(document, "paragraphs", []))
+        anchor_index = self._find_disclaimer_anchor_index(paragraphs)
+        if anchor_index is None:
+            return
+
+        high_features, low_features = self._collect_scored_features(document)
+        self._remove_paragraphs_after_index(document, anchor_index)
+
+        for text in self._build_recommendation_paragraphs(name, high_features, low_features):
+            self._append_paragraph(document, text)
+
+    def _find_disclaimer_anchor_index(self, paragraphs: list[Any]) -> int | None:
+        disclaimer_tokens = ("本報告所提供之心理天賦優勢分析", "本報告依細胞分子生物學分析及統計資料")
+        for idx, paragraph in enumerate(paragraphs):
+            text = getattr(paragraph, "text", "")
+            if any(token in text for token in disclaimer_tokens):
+                return idx
+        return None
+
+    def _collect_scored_features(self, document: "DocxDocument") -> tuple[list[str], list[str]]:
+        high_features: list[str] = []
+        low_features: list[str] = []
+
+        for table in getattr(document, "tables", []):
+            if not table.rows:
+                continue
+            headers = [self._normalize_label(cell.text.strip()) for cell in table.rows[0].cells]
+            if not self._is_main_table_headers(headers):
+                continue
+
+            for row in table.rows[1:]:
+                if len(row.cells) < 5:
+                    continue
+                feature = row.cells[1].text.strip()
+                score = row.cells[4].text.strip()
+                if not feature:
+                    continue
+                if score == "高":
+                    high_features.append(feature)
+                elif score == "低":
+                    low_features.append(feature)
+            break
+
+        return high_features, low_features
+
+    def _remove_paragraphs_after_index(self, document: "DocxDocument", anchor_index: int) -> None:
+        paragraphs = getattr(document, "paragraphs", [])
+        if isinstance(paragraphs, list):
+            del paragraphs[anchor_index + 1 :]
+            return
+
+        for paragraph in list(paragraphs[anchor_index + 1 :]):
+            p = paragraph._element
+            p.getparent().remove(p)
+            p._p = p._element = None
+
+    @staticmethod
+    def _append_paragraph(document: "DocxDocument", text: str) -> None:
+        if hasattr(document, "add_paragraph"):
+            document.add_paragraph(text)
+            return
+        if hasattr(document, "paragraphs") and isinstance(document.paragraphs, list):
+            paragraph_cls = type(document.paragraphs[0]) if document.paragraphs else None
+            if paragraph_cls is not None:
+                document.paragraphs.append(paragraph_cls(text=text))
+            else:
+                from types import SimpleNamespace
+
+                document.paragraphs.append(SimpleNamespace(text=text))
+
+    def _build_recommendation_paragraphs(self, name: str, high_features: list[str], low_features: list[str]) -> list[str]:
+        high_text = "、".join(high_features) if high_features else "綜合能力"
+        low_text = "、".join(low_features) if low_features else "待強化能力"
+        return [
+            "_____",
+            name,
+            "_____",
+            "心理潛能亮點建議",
+            "Guidance to Discover Your Hidden Strengths",
+            f"{name} 您好：以下依本次檢測結果，提供心理潛能優勢解讀與日常建議。",
+            f"高分項目（{high_text}）代表相對優勢，建議持續強化並轉化為穩定表現。",
+            "【心理潛能亮點建議】善用高分特質建立個人節奏，將優勢落實到學習、人際與目標執行。",
+            f"低分項目（{low_text}）代表目前較需補強，建議透過練習與習慣養成逐步改善。",
+            "【低分項目建議】採用小步驟、可追蹤的方式持續累積，逐步提升心理韌性與自我效能。",
+        ]
 
     def _apply_table_styles(self, document: "DocxDocument") -> None:
         for table in document.tables:

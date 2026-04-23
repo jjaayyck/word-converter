@@ -231,6 +231,32 @@ def test_apply_fixed_text_replaces_text_inside_table_cells() -> None:
     assert table.rows[1].cells[1].text == "高分項目代表相對優勢，建議持續強化並轉化為日常表現。"
 
 
+def test_replace_recommendation_section_updates_name_and_templates() -> None:
+    converter = WordReportConverter()
+    main_table = _build_main_table()
+    main_table.rows[1].cells[1].text = "高特質"
+    main_table.rows[1].cells[4].text = "高"
+    main_table.rows[2].cells[1].text = "低特質"
+    main_table.rows[2].cells[4].text = "低"
+    doc = FakeDocument(
+        paragraphs=[
+            FakeParagraph("本報告所提供之心理天賦優勢分析"),
+            FakeParagraph("吳峻維"),
+            FakeParagraph("舊版健康管理文案"),
+        ],
+        tables=[main_table],
+    )
+
+    converter._replace_recommendation_section(doc, "王曉明")
+
+    all_text = "\n".join(p.text for p in doc.paragraphs)
+    assert "吳峻維" not in all_text
+    assert "心理潛能亮點建議" in all_text
+    assert "Guidance to Discover Your Hidden Strengths" in all_text
+    assert "王曉明" in all_text
+    assert "低分項目（低特質）" in all_text
+
+
 def test_apply_fixed_text_replaces_long_declaration_text() -> None:
     converter = WordReportConverter()
     old_text = (
