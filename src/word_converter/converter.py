@@ -316,16 +316,20 @@ class WordReportConverter:
 
     def _build_recommendation_paragraphs(self, name: str, high_features: list[str], low_features: list[str]) -> list[str]:
         high_text = "、".join(high_features) if high_features else "綜合能力"
+        high_count_text = str(len(high_features)) if high_features else "多"
         low_text = "、".join(low_features) if low_features else "待強化能力"
         return [
             "_____",
             name,
             "_____",
-            "心理潛能亮點建議",
-            "Guidance to Discover Your Hidden Strengths",
-            f"{name} 您好：以下依本次檢測結果，提供心理潛能優勢解讀與日常建議。",
-            f"高分項目（{high_text}）代表相對優勢，建議持續強化並轉化為穩定表現。",
-            "【心理潛能亮點建議】善用高分特質建立個人節奏，將優勢落實到學習、人際與目標執行。",
+            f"{name} 貴賓您好：",
+            "",
+            (
+                "感謝您接受心理潛能細胞解碼檢測，由檢測結果得知，"
+                f"您在此次的分析項目中，{high_text}等共{high_count_text}項優勢評估分數較高，"
+                "在此，也提供給您改善及建議方針："
+            ),
+            "【高分項目建議】善用高分特質建立個人節奏，將優勢落實到學習、人際與目標執行。",
             f"低分項目（{low_text}）代表目前較需補強，建議透過練習與習慣養成逐步改善。",
             "【低分項目建議】採用小步驟、可追蹤的方式持續累積，逐步提升心理韌性與自我效能。",
         ]

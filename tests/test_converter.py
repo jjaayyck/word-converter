@@ -251,9 +251,10 @@ def test_replace_recommendation_section_updates_name_and_templates() -> None:
 
     all_text = "\n".join(p.text for p in doc.paragraphs)
     assert "吳峻維" not in all_text
-    assert "心理潛能亮點建議" in all_text
-    assert "Guidance to Discover Your Hidden Strengths" in all_text
+    assert "王曉明 貴賓您好：" in all_text
+    assert "感謝您接受心理潛能細胞解碼檢測" in all_text
     assert "王曉明" in all_text
+    assert "高特質等共1項優勢評估分數較高" in all_text
     assert "低分項目（低特質）" in all_text
 
 
