@@ -158,3 +158,37 @@ def test_convert_cell_codes_collects_unmapped_features() -> None:
     assert converter.last_cell_code_report["main_table_index"] == 0
     assert converter.last_cell_code_report["replaced_count"] == 6
     assert converter.last_cell_code_report["unmapped_features"] == ["不存在功能"]
+
+
+def test_apply_fixed_text_replaces_declaration_and_score_item_texts() -> None:
+    converter = WordReportConverter()
+    doc = FakeDocument(
+        paragraphs=[
+            FakeParagraph("本報告僅供參考"),
+            FakeParagraph("高分項目代表先天優勢"),
+            FakeParagraph("低分項目代表先天不足"),
+        ],
+        tables=[],
+    )
+
+    converter._apply_fixed_text(doc)
+
+    assert doc.paragraphs[0].text == "本報告為天賦 30 項分析結果，僅供健康管理參考。"
+    assert doc.paragraphs[1].text == "高分項目代表相對優勢，建議持續強化並轉化為日常表現。"
+    assert doc.paragraphs[2].text == "低分項目代表目前較需補強，建議透過訓練與習慣養成逐步改善。"
+
+
+def test_apply_fixed_text_replaces_text_inside_table_cells() -> None:
+    converter = WordReportConverter()
+    table = FakeTable(
+        rows=[
+            FakeRow(cells=[FakeCell("說明"), FakeCell("如有疑問請洽客服")]),
+            FakeRow(cells=[FakeCell("提醒"), FakeCell("高分項目代表先天優勢")]),
+        ]
+    )
+    doc = FakeDocument(paragraphs=[], tables=[table])
+
+    converter._apply_fixed_text(doc)
+
+    assert table.rows[0].cells[1].text == "如需進一步解讀，請聯繫專屬顧問或客服中心。"
+    assert table.rows[1].cells[1].text == "高分項目代表相對優勢，建議持續強化並轉化為日常表現。"

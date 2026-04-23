@@ -208,11 +208,22 @@ class WordReportConverter:
 
     def _apply_fixed_text(self, document: "DocxDocument") -> None:
         for paragraph in document.paragraphs:
-            text = paragraph.text
-            for old, new in self.fixed_text_mapping.items():
-                text = text.replace(old, new)
-            if text != paragraph.text:
-                paragraph.text = text
+            replaced = self._replace_fixed_text(paragraph.text)
+            if replaced != paragraph.text:
+                paragraph.text = replaced
+
+        for table in document.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    replaced = self._replace_fixed_text(cell.text)
+                    if replaced != cell.text:
+                        self._replace_cell_text(cell, replaced)
+
+    def _replace_fixed_text(self, text: str) -> str:
+        replaced = text
+        for old, new in self.fixed_text_mapping.items():
+            replaced = replaced.replace(old, new)
+        return replaced
 
     @staticmethod
     def _replace_cell_text(cell: "_Cell", text: str) -> None:

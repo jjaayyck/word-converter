@@ -45,10 +45,22 @@ CELL_CODE_MAPPING = {
     ("挑戰力", "TPH2-C"): "CHG001",
 }
 
-# 舊版固定文案 -> 新版固定文案
-FIXED_TEXT_MAPPING: dict[str, str] = {
+# 舊版聲明固定文案 -> 新版聲明固定文案
+DECLARATION_TEXT_MAPPING: dict[str, str] = {
     "本報告僅供參考": "本報告為天賦 30 項分析結果，僅供健康管理參考。",
     "如有疑問請洽客服": "如需進一步解讀，請聯繫專屬顧問或客服中心。",
+}
+
+# 高分 / 低分項目固定文案
+SCORE_ITEM_TEXT_MAPPING: dict[str, str] = {
+    "高分項目代表先天優勢": "高分項目代表相對優勢，建議持續強化並轉化為日常表現。",
+    "低分項目代表先天不足": "低分項目代表目前較需補強，建議透過訓練與習慣養成逐步改善。",
+}
+
+# 舊版固定文案 -> 新版固定文案（整合聲明與高低分項目）
+FIXED_TEXT_MAPPING: dict[str, str] = {
+    **DECLARATION_TEXT_MAPPING,
+    **SCORE_ITEM_TEXT_MAPPING,
 }
 
 # 可能出現的姓名與送檢編號標籤
