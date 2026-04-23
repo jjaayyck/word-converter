@@ -40,7 +40,7 @@ class WordReportConverter:
     LEGACY_MAIN_HEADERS = ["編號", "功能", "細胞解碼位點", "解碼型", "健康優勢評估", "健康優勢評分"]
     NEW_MAIN_HEADERS = ["編號", "心理天賦項目", "細胞解碼位點", "解碼型", "心理潛能優勢評估", "心理潛能優勢評分"]
 
-    ORANGE_INFO_LABELS = {"姓名", "出生日期"}
+    ORANGE_INFO_LABELS = {"姓名", "受測者姓名", "受檢者姓名", "出生日期"}
     GREEN_INFO_LABELS = {"送檢編號", "檢體類型"}
 
     def __init__(
@@ -69,6 +69,7 @@ class WordReportConverter:
         self._apply_fixed_text(document)
         self._apply_table_styles(document)
         self._apply_page_layout(document)
+        self._apply_global_font(document)
 
         output_dir_path = Path(output_dir)
         output_dir_path.mkdir(parents=True, exist_ok=True)
@@ -353,8 +354,36 @@ class WordReportConverter:
         shd.set(qn("w:fill"), fill_hex)
         tc_pr.append(shd)
 
+    def _apply_global_font(self, document: "DocxDocument") -> None:
+        for paragraph in document.paragraphs:
+            for run in getattr(paragraph, "runs", []):
+                self._set_run_font(run)
+
+        for table in document.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    for paragraph in getattr(cell, "paragraphs", []):
+                        for run in getattr(paragraph, "runs", []):
+                            self._set_run_font(run)
+
+    def _has_disclaimer_text(self, document: "DocxDocument") -> bool:
+        disclaimer_tokens = ["本報告所提供之心理天賦優勢分析", "本報告依細胞分子生物學分析及統計資料"]
+        for paragraph in document.paragraphs:
+            text = paragraph.text.strip()
+            if any(token in text for token in disclaimer_tokens):
+                return True
+        return False
+
     def _apply_page_layout(self, document: "DocxDocument") -> None:
-        for section in getattr(document, "sections", []):
+        sections = list(getattr(document, "sections", []))
+        if not sections:
+            return
+
+        target_sections = sections
+        if self._has_disclaimer_text(document) and len(sections) > 1:
+            target_sections = sections[:-1]
+
+        for section in target_sections:
             section.top_margin = self.TOP_MARGIN_EMU
             section.left_margin = self.SIDE_BOTTOM_MARGIN_EMU
             section.right_margin = self.SIDE_BOTTOM_MARGIN_EMU

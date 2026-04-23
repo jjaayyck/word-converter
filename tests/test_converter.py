@@ -121,6 +121,17 @@ def test_convert_table_headers_replaces_main_table_titles() -> None:
     assert headers == ["編 號", "心理天賦項目", "細胞解碼位點", "解碼型", "心理潛能優勢評估", "心理潛能優勢評分"]
 
 
+
+
+def test_convert_table_headers_keeps_name_label_unchanged() -> None:
+    converter = WordReportConverter()
+    table = FakeTable(rows=[FakeRow(cells=[FakeCell("姓名"), FakeCell("送檢編號")])])
+    doc = FakeDocument(paragraphs=[], tables=[table])
+
+    converter._convert_table_headers(doc)
+
+    assert table.rows[0].cells[0].text == "姓名"
+
 def test_convert_cell_codes_only_on_main_table() -> None:
     converter = WordReportConverter()
     main_table = _build_main_table()
@@ -252,6 +263,23 @@ def test_convert_cell_codes_updates_gene_row_height() -> None:
     assert main_table.rows[1].height == int(1.9 * 360000)
     assert main_table.rows[1].height_rule == 2
 
+
+
+
+def test_apply_page_layout_skips_last_section_when_disclaimer_exists() -> None:
+    converter = WordReportConverter()
+    section_a = FakeSection()
+    section_b = FakeSection()
+    doc = FakeDocument(
+        paragraphs=[FakeParagraph("本報告所提供之心理天賦優勢分析")],
+        tables=[],
+        sections=[section_a, section_b],
+    )
+
+    converter._apply_page_layout(doc)
+
+    assert section_a.top_margin == int(0.75 * 360000)
+    assert section_b.top_margin is None
 
 def test_apply_page_layout_updates_margins() -> None:
     converter = WordReportConverter()

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 # 舊版欄位名稱 -> 新版欄位名稱
 TABLE_HEADER_MAPPING: dict[str, str] = {
-    "姓名": "受測者姓名",
     "送檢編號": "檢測編號",
     "檢測日期": "檢測日期(西元)",
     "結果": "分析結果",
