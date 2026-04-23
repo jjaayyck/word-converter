@@ -291,7 +291,7 @@ def test_convert_cell_codes_updates_gene_row_height() -> None:
 
 
 
-def test_apply_page_layout_skips_last_section_when_disclaimer_exists() -> None:
+def test_apply_page_layout_updates_all_sections_when_disclaimer_exists() -> None:
     converter = WordReportConverter()
     section_a = FakeSection()
     section_b = FakeSection()
@@ -304,7 +304,7 @@ def test_apply_page_layout_skips_last_section_when_disclaimer_exists() -> None:
     converter._apply_page_layout(doc)
 
     assert section_a.top_margin == int(0.75 * 360000)
-    assert section_b.top_margin is None
+    assert section_b.top_margin == int(0.75 * 360000)
 
 def test_apply_page_layout_updates_margins() -> None:
     converter = WordReportConverter()

@@ -617,11 +617,7 @@ class WordReportConverter:
         if not sections:
             return
 
-        target_sections = sections
-        if self._has_disclaimer_text(document) and len(sections) > 1:
-            target_sections = sections[:-1]
-
-        for section in target_sections:
+        for section in sections:
             section.top_margin = self.TOP_MARGIN_EMU
             section.left_margin = self.SIDE_BOTTOM_MARGIN_EMU
             section.right_margin = self.SIDE_BOTTOM_MARGIN_EMU
