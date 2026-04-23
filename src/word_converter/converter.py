@@ -250,7 +250,9 @@ class WordReportConverter:
 
     def _replace_recommendation_section(self, document: "DocxDocument", name: str) -> None:
         paragraphs = list(getattr(document, "paragraphs", []))
-        anchor_index = self._find_disclaimer_anchor_index(paragraphs)
+        anchor_index = self._find_page_break_anchor_index(paragraphs, target_break_count=3)
+        if anchor_index is None:
+            anchor_index = self._find_disclaimer_anchor_index(paragraphs)
         if anchor_index is None:
             return
 
@@ -261,7 +263,21 @@ class WordReportConverter:
             self._append_paragraph(document, text)
 
         self._append_high_score_tables(document, high_features)
-        self._append_page_break(document)
+
+    @staticmethod
+    def _find_page_break_anchor_index(paragraphs: list[Any], target_break_count: int) -> int | None:
+        page_break_count = 0
+        for idx, paragraph in enumerate(paragraphs):
+            element = getattr(paragraph, "_element", None)
+            if element is None:
+                continue
+            for br in element.findall(".//{http://schemas.openxmlformats.org/wordprocessingml/2006/main}br"):
+                br_type = br.get("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}type")
+                if br_type == "page":
+                    page_break_count += 1
+                    if page_break_count == target_break_count:
+                        return idx
+        return None
 
     def _find_disclaimer_anchor_index(self, paragraphs: list[Any]) -> int | None:
         disclaimer_tokens = ("本報告所提供之心理天賦優勢分析", "本報告依細胞分子生物學分析及統計資料")
