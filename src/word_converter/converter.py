@@ -63,7 +63,6 @@ class WordReportConverter:
             sample_id=sample_id,
         )
 
-
     @staticmethod
     def _load_document(input_file: Path) -> Any:
         try:
@@ -76,12 +75,8 @@ class WordReportConverter:
         return Document(str(input_file))
 
     def _extract_identity(self, document: "DocxDocument") -> tuple[str, str]:
-        full_text = "\n".join(p.text for p in document.paragraphs if p.text)
-        name = self._extract_by_labels(full_text, NAME_LABELS)
-        sample_id = self._extract_by_labels(full_text, SAMPLE_ID_LABELS)
-
-        if name and sample_id:
-            return name, sample_id
+        name: str | None = None
+        sample_id: str | None = None
 
         for table in document.tables:
             t_name, t_id = self._extract_identity_from_table(table)
@@ -90,12 +85,23 @@ class WordReportConverter:
             if name and sample_id:
                 return name, sample_id
 
+        full_text = "\n".join(p.text for p in document.paragraphs if p.text)
+        name = name or self._extract_by_labels(full_text, NAME_LABELS)
+        sample_id = sample_id or self._extract_by_labels(full_text, SAMPLE_ID_LABELS)
+
+        if name and sample_id:
+            return name, sample_id
+
         missing = []
         if not name:
             missing.append("姓名")
         if not sample_id:
             missing.append("送檢編號")
         raise ValueError(f"無法從文件中擷取欄位：{', '.join(missing)}")
+
+    @staticmethod
+    def _normalize_label(value: str) -> str:
+        return "".join(value.split())
 
     @staticmethod
     def _extract_by_labels(text: str, labels: list[str]) -> str | None:
@@ -110,14 +116,31 @@ class WordReportConverter:
         name: str | None = None
         sample_id: str | None = None
 
+        normalized_name_labels = {self._normalize_label(label) for label in NAME_LABELS}
+        normalized_sample_id_labels = {self._normalize_label(label) for label in SAMPLE_ID_LABELS}
+
         for row in table.rows:
             cells = [cell.text.strip() for cell in row.cells]
             for idx, cell_text in enumerate(cells):
-                if cell_text in NAME_LABELS and idx + 1 < len(cells):
-                    name = name or cells[idx + 1].strip()
-                if cell_text in SAMPLE_ID_LABELS and idx + 1 < len(cells):
-                    sample_id = sample_id or cells[idx + 1].strip()
+                normalized_cell_text = self._normalize_label(cell_text)
+
+                if normalized_cell_text in normalized_name_labels:
+                    name = name or self._first_non_empty_to_right(cells, idx)
+
+                if normalized_cell_text in normalized_sample_id_labels:
+                    sample_id = sample_id or self._first_non_empty_to_right(cells, idx)
+
+                if name and sample_id:
+                    return name, sample_id
         return name, sample_id
+
+    @staticmethod
+    def _first_non_empty_to_right(cells: list[str], idx: int) -> str | None:
+        for cell_text in cells[idx + 1 :]:
+            value = cell_text.strip()
+            if value:
+                return value
+        return None
 
     def _convert_table_headers(self, document: "DocxDocument") -> None:
         for table in document.tables:
