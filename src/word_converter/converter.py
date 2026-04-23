@@ -256,12 +256,12 @@ class WordReportConverter:
 
         high_features, low_features = self._collect_scored_features(document)
         self._remove_paragraphs_after_index(document, anchor_index)
-        self._append_page_break(document)
 
         for text in self._build_recommendation_paragraphs(name, high_features, low_features):
             self._append_paragraph(document, text)
 
         self._append_high_score_tables(document, high_features)
+        self._append_page_break(document)
 
     def _find_disclaimer_anchor_index(self, paragraphs: list[Any]) -> int | None:
         disclaimer_tokens = ("本報告所提供之心理天賦優勢分析", "本報告依細胞分子生物學分析及統計資料")
@@ -360,13 +360,13 @@ class WordReportConverter:
 
             self._replace_cell_text(header_cell, feature)
             self._set_cell_fill(header_cell, self.HEADER_FILL_COLOR)
-            self._style_cell_text(header_cell, bold=True, font_color=self.HEADER_FONT_COLOR)
+            self._style_cell_text(header_cell, bold=True, font_color=self.HEADER_FONT_COLOR, font_size_pt=18)
             self._set_table_border(
                 header_table,
                 color=self.DARK_BORDER_COLOR,
                 size_eighths=self.HEADER_BORDER_SIZE_EIGHTHS,
             )
-            self._set_row_height_pt(header_table.rows[0], 19)
+            self._set_row_height_cm(header_table.rows[0], 0.86)
 
             spacer = document.add_paragraph("")
             self._set_paragraph_spacing_pt(spacer, line_spacing_pt=6)
@@ -380,7 +380,7 @@ class WordReportConverter:
                 color=self.RECOMMEND_BORDER_COLOR,
                 size_eighths=self.RECOMMEND_BORDER_SIZE_EIGHTHS,
             )
-            self._set_row_height_pt(suggestion_table.rows[0], 19)
+            self._set_row_height_cm(suggestion_table.rows[0], 7)
 
             if index < len(feature_items) - 1:
                 between = document.add_paragraph("")
@@ -423,6 +423,14 @@ class WordReportConverter:
         from docx.shared import Pt
 
         row.height = Pt(height_pt)
+        if hasattr(row, "height_rule"):
+            row.height_rule = 2
+
+    @staticmethod
+    def _set_row_height_cm(row: Any, height_cm: float) -> None:
+        from docx.shared import Cm
+
+        row.height = Cm(height_cm)
         if hasattr(row, "height_rule"):
             row.height_rule = 2
 
@@ -475,7 +483,13 @@ class WordReportConverter:
         )
 
     @classmethod
-    def _style_cell_text(cls, cell: Any, bold: bool | None = None, font_color: str | None = None) -> None:
+    def _style_cell_text(
+        cls,
+        cell: Any,
+        bold: bool | None = None,
+        font_color: str | None = None,
+        font_size_pt: int | None = None,
+    ) -> None:
         paragraphs = getattr(cell, "paragraphs", None)
         if not paragraphs:
             return
@@ -487,10 +501,16 @@ class WordReportConverter:
                 paragraph.text = ""
                 runs = [run]
             for run in runs:
-                cls._set_run_font(run, bold=bold, font_color=font_color)
+                cls._set_run_font(run, bold=bold, font_color=font_color, font_size_pt=font_size_pt)
 
     @classmethod
-    def _set_run_font(cls, run: Any, bold: bool | None = None, font_color: str | None = None) -> None:
+    def _set_run_font(
+        cls,
+        run: Any,
+        bold: bool | None = None,
+        font_color: str | None = None,
+        font_size_pt: int | None = None,
+    ) -> None:
         font = getattr(run, "font", None)
         if font is None:
             return
@@ -498,6 +518,10 @@ class WordReportConverter:
         if bold is not None:
             font.bold = bold
         font.name = cls.FONT_NAME
+        if font_size_pt is not None:
+            from docx.shared import Pt
+
+            font.size = Pt(font_size_pt)
 
         if font_color:
             from docx.shared import RGBColor
