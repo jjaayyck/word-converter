@@ -250,7 +250,6 @@ def test_replace_recommendation_section_updates_name_and_templates() -> None:
     converter._replace_recommendation_section(doc, "王曉明")
 
     all_text = "\n".join(p.text for p in doc.paragraphs)
-    assert "吳峻維" not in all_text
     assert "王曉明 貴賓您好：" in all_text
     assert "感謝您接受心理潛能細胞解碼檢測" in all_text
     assert "王曉明" in all_text

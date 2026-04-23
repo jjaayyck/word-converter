@@ -249,43 +249,48 @@ class WordReportConverter:
         return replaced
 
     def _replace_recommendation_section(self, document: "DocxDocument", name: str) -> None:
-        paragraphs = list(getattr(document, "paragraphs", []))
-        anchor_index = self._find_page_break_anchor_index(paragraphs, target_break_count=3)
-        if anchor_index is None:
-            anchor_index = self._find_disclaimer_anchor_index(paragraphs)
-        if anchor_index is None:
+        anchor_paragraph = self._find_disclaimer_paragraph(document)
+        if anchor_paragraph is None:
             return
 
         high_features, low_features = self._collect_scored_features(document)
-        self._remove_paragraphs_after_index(document, anchor_index)
+        body = getattr(getattr(document, "_body", None), "_element", None)
+        original_len = len(body) if body is not None else 0
+
+        self._append_page_break(document)
 
         for text in self._build_recommendation_paragraphs(name, high_features, low_features):
             self._append_paragraph(document, text)
 
         self._append_high_score_tables(document, high_features)
+        if body is None:
+            return
+        new_elements = list(body)[original_len:]
+        self._move_elements_after_paragraph(body, anchor_paragraph, new_elements)
 
     @staticmethod
-    def _find_page_break_anchor_index(paragraphs: list[Any], target_break_count: int) -> int | None:
-        page_break_count = 0
-        for idx, paragraph in enumerate(paragraphs):
-            element = getattr(paragraph, "_element", None)
-            if element is None:
-                continue
-            for br in element.findall(".//{http://schemas.openxmlformats.org/wordprocessingml/2006/main}br"):
-                br_type = br.get("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}type")
-                if br_type == "page":
-                    page_break_count += 1
-                    if page_break_count == target_break_count:
-                        return idx
+    def _find_disclaimer_paragraph(document: "DocxDocument") -> Any | None:
+        target_texts = ("請洽詢專業心理師或醫療人員。", "本報告所提供之心理天賦優勢分析")
+        for paragraph in list(getattr(document, "paragraphs", [])):
+            text = getattr(paragraph, "text", "")
+            if any(token in text for token in target_texts):
+                return paragraph
         return None
 
-    def _find_disclaimer_anchor_index(self, paragraphs: list[Any]) -> int | None:
-        disclaimer_tokens = ("本報告所提供之心理天賦優勢分析", "本報告依細胞分子生物學分析及統計資料")
-        for idx, paragraph in enumerate(paragraphs):
-            text = getattr(paragraph, "text", "")
-            if any(token in text for token in disclaimer_tokens):
-                return idx
-        return None
+    @staticmethod
+    def _move_elements_after_paragraph(body: Any, paragraph: Any, elements: list[Any]) -> None:
+        anchor = getattr(paragraph, "_p", None)
+        if anchor is None:
+            return
+
+        for element in elements:
+            body.remove(element)
+
+        body_children = list(body)
+        insert_at = body_children.index(anchor) + 1 if anchor in body_children else len(body_children)
+        for element in elements:
+            body.insert(insert_at, element)
+            insert_at += 1
 
     def _collect_scored_features(self, document: "DocxDocument") -> tuple[list[str], list[str]]:
         high_features: list[str] = []
