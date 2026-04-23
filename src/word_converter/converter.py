@@ -35,7 +35,10 @@ class WordReportConverter:
     HEADER_FONT_COLOR = "FFFFFF"
     ORANGE_LABEL_FILL_COLOR = "ED7D31"
     GREEN_LABEL_FILL_COLOR = "92D050"
+    DARK_BORDER_COLOR = "595959"
+    HIGH_SCORE_FONT_COLOR = "00B050"
     RECOMMEND_BORDER_COLOR = "ED7D31"
+    HEADER_BORDER_SIZE_EIGHTHS = 4  # 1/2 pt
     RECOMMEND_BORDER_SIZE_EIGHTHS = 18  # 2 1/4 pt
     FONT_NAME = "微軟正黑體"
 
@@ -253,6 +256,7 @@ class WordReportConverter:
 
         high_features, low_features = self._collect_scored_features(document)
         self._remove_paragraphs_after_index(document, anchor_index)
+        self._append_page_break(document)
 
         for text in self._build_recommendation_paragraphs(name, high_features, low_features):
             self._append_paragraph(document, text)
@@ -318,6 +322,17 @@ class WordReportConverter:
 
                 document.paragraphs.append(SimpleNamespace(text=text))
 
+    @staticmethod
+    def _append_page_break(document: "DocxDocument") -> None:
+        if hasattr(document, "add_paragraph"):
+            paragraph = document.add_paragraph("")
+            run = paragraph.add_run()
+            try:
+                from docx.enum.text import WD_BREAK
+                run.add_break(WD_BREAK.PAGE)
+            except Exception:
+                run.add_break()
+
     def _build_recommendation_paragraphs(self, name: str, high_features: list[str], low_features: list[str]) -> list[str]:
         high_text = "、".join(high_features) if high_features else "綜合能力"
         high_count_text = str(len(high_features)) if high_features else "多"
@@ -340,22 +355,32 @@ class WordReportConverter:
 
         feature_items = high_features or ["綜合能力"]
         for index, feature in enumerate(feature_items):
-            table = document.add_table(rows=2, cols=1)
-            header_cell = table.rows[0].cells[0]
-            body_cell = table.rows[1].cells[0]
+            header_table = document.add_table(rows=1, cols=1)
+            header_cell = header_table.rows[0].cells[0]
 
             self._replace_cell_text(header_cell, feature)
-            self._replace_cell_text(body_cell, "◆ 建議內容可依實際需求補充。")
-
             self._set_cell_fill(header_cell, self.HEADER_FILL_COLOR)
             self._style_cell_text(header_cell, bold=True, font_color=self.HEADER_FONT_COLOR)
-            self._style_cell_text(body_cell)
-            self._set_table_border(table, color=self.RECOMMEND_BORDER_COLOR, size_eighths=self.RECOMMEND_BORDER_SIZE_EIGHTHS)
-            self._set_row_height_pt(table.rows[0], 19)
-            self._set_row_height_pt(table.rows[1], 19)
+            self._set_table_border(
+                header_table,
+                color=self.DARK_BORDER_COLOR,
+                size_eighths=self.HEADER_BORDER_SIZE_EIGHTHS,
+            )
+            self._set_row_height_pt(header_table.rows[0], 19)
 
             spacer = document.add_paragraph("")
             self._set_paragraph_spacing_pt(spacer, line_spacing_pt=6)
+
+            suggestion_table = document.add_table(rows=1, cols=1)
+            suggestion_cell = suggestion_table.rows[0].cells[0]
+            self._replace_cell_text(suggestion_cell, "◆ 建議內容可依實際需求補充。")
+            self._style_cell_text(suggestion_cell)
+            self._set_table_border(
+                suggestion_table,
+                color=self.RECOMMEND_BORDER_COLOR,
+                size_eighths=self.RECOMMEND_BORDER_SIZE_EIGHTHS,
+            )
+            self._set_row_height_pt(suggestion_table.rows[0], 19)
 
             if index < len(feature_items) - 1:
                 between = document.add_paragraph("")
@@ -410,6 +435,7 @@ class WordReportConverter:
             normalized_headers = [self._normalize_label(cell.text.strip()) for cell in header_cells]
             if self._is_main_table_headers(normalized_headers):
                 self._style_main_table_header_row(header_cells)
+                self._style_main_table_score_cells(table)
 
             self._style_info_label_cells(table)
 
@@ -428,6 +454,14 @@ class WordReportConverter:
                 elif normalized_label in self.GREEN_INFO_LABELS:
                     self._set_cell_fill(cell, self.GREEN_LABEL_FILL_COLOR)
                     self._style_cell_text(cell)
+
+    def _style_main_table_score_cells(self, table: Any) -> None:
+        for row in table.rows[1:]:
+            if len(row.cells) < 5:
+                continue
+            score_value = row.cells[4].text.strip()
+            if score_value == "高":
+                self._style_cell_text(row.cells[4], font_color=self.HIGH_SCORE_FONT_COLOR)
 
     @classmethod
     def _is_main_table_headers(cls, normalized_headers: list[str]) -> bool:
