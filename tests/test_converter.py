@@ -31,6 +31,26 @@ class FakeDocument:
     tables: list[FakeTable]
 
 
+def _build_main_table() -> FakeTable:
+    return FakeTable(
+        rows=[
+            FakeRow(
+                cells=[
+                    FakeCell("功能名稱"),
+                    FakeCell("細胞解碼位點"),
+                    FakeCell("新版代碼"),
+                ]
+            ),
+            FakeRow(cells=[FakeCell("運動神經"), FakeCell("CNTF"), FakeCell("")]),
+            FakeRow(cells=[FakeCell("反應速度"), FakeCell("CNTF"), FakeCell("")]),
+            FakeRow(cells=[FakeCell("專注穩定性"), FakeCell("HTR2C"), FakeCell("")]),
+            FakeRow(cells=[FakeCell("專注力"), FakeCell("HTR2C"), FakeCell("")]),
+            FakeRow(cells=[FakeCell("協調性"), FakeCell("α-actinin"), FakeCell("")]),
+            FakeRow(cells=[FakeCell("肢體靈活性"), FakeCell("α-actinin"), FakeCell("")]),
+        ]
+    )
+
+
 def _build_realistic_table() -> FakeTable:
     return FakeTable(
         rows=[
@@ -82,3 +102,37 @@ def test_output_filename_format() -> None:
     output = converter._build_output_filename(sample_id="APT-01-00XXXX", name="王曉明")
 
     assert output == "台-APT-01-00XXXX_王曉明-天賦30項.docx"
+
+
+def test_convert_cell_codes_only_on_main_table() -> None:
+    converter = WordReportConverter()
+    main_table = _build_main_table()
+    non_main_table = FakeTable(
+        rows=[
+            FakeRow(cells=[FakeCell("說明"), FakeCell("CNTF")]),
+            FakeRow(cells=[FakeCell("備註"), FakeCell("HTR2C")]),
+        ]
+    )
+    doc = FakeDocument(paragraphs=[FakeParagraph("段落中 CNTF 不應被替換")], tables=[non_main_table, main_table])
+
+    converter._convert_cell_codes(doc)
+
+    assert main_table.rows[1].cells[2].text == "MN001"
+    assert main_table.rows[2].cells[2].text == "RTS001"
+    assert non_main_table.rows[0].cells[1].text == "CNTF"
+    assert doc.paragraphs[0].text == "段落中 CNTF 不應被替換"
+
+
+def test_convert_cell_codes_distinguishes_duplicate_legacy_codes() -> None:
+    converter = WordReportConverter()
+    main_table = _build_main_table()
+    doc = FakeDocument(paragraphs=[], tables=[main_table])
+
+    converter._convert_cell_codes(doc)
+
+    assert main_table.rows[1].cells[2].text == "MN001"  # 運動神經 + CNTF
+    assert main_table.rows[2].cells[2].text == "RTS001"  # 反應速度 + CNTF
+    assert main_table.rows[3].cells[2].text == "SF001"  # 專注穩定性 + HTR2C
+    assert main_table.rows[4].cells[2].text == "CCT001"  # 專注力 + HTR2C
+    assert main_table.rows[5].cells[2].text == "CD001"  # 協調性 + α-actinin
+    assert main_table.rows[6].cells[2].text == "PFB001"  # 肢體靈活性 + α-actinin

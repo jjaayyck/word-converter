@@ -34,7 +34,7 @@ class WordReportConverter:
     def __init__(
         self,
         table_header_mapping: dict[str, str] | None = None,
-        cell_code_mapping: dict[str, str] | None = None,
+        cell_code_mapping: dict[tuple[str, str], str] | None = None,
         fixed_text_mapping: dict[str, str] | None = None,
     ) -> None:
         self.table_header_mapping = table_header_mapping or TABLE_HEADER_MAPPING
@@ -48,8 +48,9 @@ class WordReportConverter:
 
         document = self._load_document(input_file)
         name, sample_id = self._extract_identity(document)
-
-        # MVP v1: 先完成讀取/擷取/命名/輸出流程，內容轉換下一版再接入。
+        self._convert_table_headers(document)
+        self._convert_cell_codes(document)
+        self._apply_fixed_text(document)
 
         output_dir_path = Path(output_dir)
         output_dir_path.mkdir(parents=True, exist_ok=True)
@@ -152,26 +153,55 @@ class WordReportConverter:
                     self._replace_cell_text(cell, self.table_header_mapping[original])
 
     def _convert_cell_codes(self, document: "DocxDocument") -> None:
-        code_pattern = re.compile(r"\b([A-Z]\d{2}|[A-Z]\d{2,3})\b")
+        main_table = self._find_main_table(document)
+        if main_table is None:
+            return
 
-        def replace_codes(text: str) -> str:
-            def _repl(match: re.Match[str]) -> str:
-                code = match.group(1)
-                return self.cell_code_mapping.get(code, code)
+        header_map = self._build_header_index_map(main_table)
+        feature_col = self._find_column_index(header_map, ["功能名稱"])
+        old_code_col = self._find_column_index(header_map, ["細胞解碼位點"])
+        target_col = self._find_column_index(header_map, ["新版代碼", "細胞代碼", "代碼"])
 
-            return code_pattern.sub(_repl, text)
+        if feature_col is None or old_code_col is None:
+            return
+        if target_col is None:
+            target_col = old_code_col
 
-        for paragraph in document.paragraphs:
-            new_text = replace_codes(paragraph.text)
-            if new_text != paragraph.text:
-                paragraph.text = new_text
+        for row in main_table.rows[1:]:
+            if feature_col >= len(row.cells) or old_code_col >= len(row.cells) or target_col >= len(row.cells):
+                continue
 
+            feature_name = row.cells[feature_col].text.strip()
+            old_code = row.cells[old_code_col].text.strip()
+            if not feature_name or not old_code:
+                continue
+
+            new_code = self.cell_code_mapping.get((feature_name, old_code))
+            if new_code:
+                self._replace_cell_text(row.cells[target_col], new_code)
+
+    def _find_main_table(self, document: "DocxDocument") -> "Table | None":
         for table in document.tables:
-            for row in table.rows:
-                for cell in row.cells:
-                    new_text = replace_codes(cell.text)
-                    if new_text != cell.text:
-                        self._replace_cell_text(cell, new_text)
+            header_map = self._build_header_index_map(table)
+            has_feature = self._find_column_index(header_map, ["功能名稱"]) is not None
+            has_old_code = self._find_column_index(header_map, ["細胞解碼位點"]) is not None
+            if has_feature and has_old_code:
+                return table
+        return None
+
+    def _build_header_index_map(self, table: "Table") -> dict[str, int]:
+        if not table.rows:
+            return {}
+
+        header_cells = table.rows[0].cells
+        return {self._normalize_label(cell.text.strip()): idx for idx, cell in enumerate(header_cells)}
+
+    def _find_column_index(self, header_map: dict[str, int], candidates: list[str]) -> int | None:
+        for candidate in candidates:
+            idx = header_map.get(self._normalize_label(candidate))
+            if idx is not None:
+                return idx
+        return None
 
     def _apply_fixed_text(self, document: "DocxDocument") -> None:
         for paragraph in document.paragraphs:
@@ -183,7 +213,7 @@ class WordReportConverter:
 
     @staticmethod
     def _replace_cell_text(cell: "_Cell", text: str) -> None:
-        if cell.paragraphs:
+        if hasattr(cell, "paragraphs") and cell.paragraphs:
             cell.paragraphs[0].text = text
             for paragraph in cell.paragraphs[1:]:
                 paragraph.text = ""
