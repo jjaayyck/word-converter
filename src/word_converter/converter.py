@@ -31,6 +31,18 @@ class ConversionResult:
 class WordReportConverter:
     """Convert an old-format Word report to the new format."""
 
+    HEADER_FILL_COLOR = "00B0F0"
+    HEADER_FONT_COLOR = "FFFFFF"
+    ORANGE_LABEL_FILL_COLOR = "ED7D31"
+    GREEN_LABEL_FILL_COLOR = "92D050"
+    FONT_NAME = "微軟正黑體"
+
+    LEGACY_MAIN_HEADERS = ["編號", "功能", "細胞解碼位點", "解碼型", "健康優勢評估", "健康優勢評分"]
+    NEW_MAIN_HEADERS = ["編號", "心理天賦項目", "細胞解碼位點", "解碼型", "心理潛能優勢評估", "心理潛能優勢評分"]
+
+    ORANGE_INFO_LABELS = {"姓名", "受測者姓名", "受檢者姓名", "出生日期"}
+    GREEN_INFO_LABELS = {"送檢編號", "檢體類型"}
+
     def __init__(
         self,
         table_header_mapping: dict[str, str] | None = None,
@@ -38,6 +50,9 @@ class WordReportConverter:
         fixed_text_mapping: dict[str, str] | None = None,
     ) -> None:
         self.table_header_mapping = table_header_mapping or TABLE_HEADER_MAPPING
+        self.normalized_table_header_mapping = {
+            self._normalize_label(source): target for source, target in self.table_header_mapping.items()
+        }
         self.cell_code_mapping = cell_code_mapping or CELL_CODE_MAPPING
         self.fixed_text_mapping = fixed_text_mapping or FIXED_TEXT_MAPPING
         self.last_cell_code_report: dict[str, Any] = {}
@@ -52,7 +67,10 @@ class WordReportConverter:
         self._convert_table_headers(document)
         self._convert_cell_codes(document)
         self._apply_fixed_text(document)
+        self._replace_recommendation_section(document, name)
+        self._apply_table_styles(document)
         self._apply_page_layout(document)
+        self._apply_global_font(document)
 
         output_dir_path = Path(output_dir)
         output_dir_path.mkdir(parents=True, exist_ok=True)
@@ -150,12 +168,12 @@ class WordReportConverter:
             if not table.rows:
                 continue
             for cell in table.rows[0].cells:
-                original = cell.text.strip()
-                if original in self.table_header_mapping:
-                    self._replace_cell_text(cell, self.table_header_mapping[original])
+                normalized_original = self._normalize_label(cell.text.strip())
+                replacement = self.normalized_table_header_mapping.get(normalized_original)
+                if replacement:
+                    self._replace_cell_text(cell, replacement)
 
     def _convert_cell_codes(self, document: "DocxDocument") -> None:
-        expected_main_headers = ["編號", "功能", "細胞解碼位點", "解碼型", "健康優勢評估", "健康優勢評分"]
         table_reports: list[dict[str, Any]] = []
         main_table_index: int | None = None
         replaced_count = 0
@@ -167,9 +185,7 @@ class WordReportConverter:
             headers = [cell.text.strip() for cell in header_cells]
             normalized_headers = [self._normalize_label(header) for header in headers]
 
-            is_main_table = len(normalized_headers) >= 6 and all(
-                normalized_headers[col] == expected_main_headers[col] for col in range(6)
-            )
+            is_main_table = self._is_main_table_headers(normalized_headers)
             table_reports.append(
                 {
                     "table_index": index,
@@ -227,8 +243,235 @@ class WordReportConverter:
             replaced = replaced.replace(old, new)
         return replaced
 
+    def _replace_recommendation_section(self, document: "DocxDocument", name: str) -> None:
+        paragraphs = list(getattr(document, "paragraphs", []))
+        anchor_index = self._find_disclaimer_anchor_index(paragraphs)
+        if anchor_index is None:
+            return
+
+        high_features, low_features = self._collect_scored_features(document)
+        self._remove_paragraphs_after_index(document, anchor_index)
+
+        for text in self._build_recommendation_paragraphs(name, high_features, low_features):
+            self._append_paragraph(document, text)
+
+    def _find_disclaimer_anchor_index(self, paragraphs: list[Any]) -> int | None:
+        disclaimer_tokens = ("本報告所提供之心理天賦優勢分析", "本報告依細胞分子生物學分析及統計資料")
+        for idx, paragraph in enumerate(paragraphs):
+            text = getattr(paragraph, "text", "")
+            if any(token in text for token in disclaimer_tokens):
+                return idx
+        return None
+
+    def _collect_scored_features(self, document: "DocxDocument") -> tuple[list[str], list[str]]:
+        high_features: list[str] = []
+        low_features: list[str] = []
+
+        for table in getattr(document, "tables", []):
+            if not table.rows:
+                continue
+            headers = [self._normalize_label(cell.text.strip()) for cell in table.rows[0].cells]
+            if not self._is_main_table_headers(headers):
+                continue
+
+            for row in table.rows[1:]:
+                if len(row.cells) < 5:
+                    continue
+                feature = row.cells[1].text.strip()
+                score = row.cells[4].text.strip()
+                if not feature:
+                    continue
+                if score == "高":
+                    high_features.append(feature)
+                elif score == "低":
+                    low_features.append(feature)
+            break
+
+        return high_features, low_features
+
+    def _remove_paragraphs_after_index(self, document: "DocxDocument", anchor_index: int) -> None:
+        paragraphs = getattr(document, "paragraphs", [])
+        if isinstance(paragraphs, list):
+            del paragraphs[anchor_index + 1 :]
+            return
+
+        for paragraph in list(paragraphs[anchor_index + 1 :]):
+            p = paragraph._element
+            p.getparent().remove(p)
+            p._p = p._element = None
+
+    @staticmethod
+    def _append_paragraph(document: "DocxDocument", text: str) -> None:
+        if hasattr(document, "add_paragraph"):
+            document.add_paragraph(text)
+            return
+        if hasattr(document, "paragraphs") and isinstance(document.paragraphs, list):
+            paragraph_cls = type(document.paragraphs[0]) if document.paragraphs else None
+            if paragraph_cls is not None:
+                document.paragraphs.append(paragraph_cls(text=text))
+            else:
+                from types import SimpleNamespace
+
+                document.paragraphs.append(SimpleNamespace(text=text))
+
+    def _build_recommendation_paragraphs(self, name: str, high_features: list[str], low_features: list[str]) -> list[str]:
+        high_text = "、".join(high_features) if high_features else "綜合能力"
+        low_text = "、".join(low_features) if low_features else "待強化能力"
+        return [
+            "_____",
+            name,
+            "_____",
+            "心理潛能亮點建議",
+            "Guidance to Discover Your Hidden Strengths",
+            f"{name} 您好：以下依本次檢測結果，提供心理潛能優勢解讀與日常建議。",
+            f"高分項目（{high_text}）代表相對優勢，建議持續強化並轉化為穩定表現。",
+            "【心理潛能亮點建議】善用高分特質建立個人節奏，將優勢落實到學習、人際與目標執行。",
+            f"低分項目（{low_text}）代表目前較需補強，建議透過練習與習慣養成逐步改善。",
+            "【低分項目建議】採用小步驟、可追蹤的方式持續累積，逐步提升心理韌性與自我效能。",
+        ]
+
+    def _apply_table_styles(self, document: "DocxDocument") -> None:
+        for table in document.tables:
+            if not table.rows:
+                continue
+
+            header_cells = table.rows[0].cells
+            normalized_headers = [self._normalize_label(cell.text.strip()) for cell in header_cells]
+            if self._is_main_table_headers(normalized_headers):
+                self._style_main_table_header_row(header_cells)
+
+            self._style_info_label_cells(table)
+
+    def _style_main_table_header_row(self, header_cells: list[Any]) -> None:
+        for cell in header_cells:
+            self._set_cell_fill(cell, self.HEADER_FILL_COLOR)
+            self._style_cell_text(cell, bold=True, font_color=self.HEADER_FONT_COLOR)
+
+    def _style_info_label_cells(self, table: Any) -> None:
+        for row in table.rows:
+            for cell in row.cells:
+                normalized_label = self._normalize_label(cell.text.strip())
+                if normalized_label in self.ORANGE_INFO_LABELS:
+                    self._set_cell_fill(cell, self.ORANGE_LABEL_FILL_COLOR)
+                    self._style_cell_text(cell)
+                elif normalized_label in self.GREEN_INFO_LABELS:
+                    self._set_cell_fill(cell, self.GREEN_LABEL_FILL_COLOR)
+                    self._style_cell_text(cell)
+
+    @classmethod
+    def _is_main_table_headers(cls, normalized_headers: list[str]) -> bool:
+        if len(normalized_headers) < 6:
+            return False
+        legacy = cls.LEGACY_MAIN_HEADERS
+        new = cls.NEW_MAIN_HEADERS
+        return all(
+            normalized_headers[col] in {legacy[col], new[col]}
+            for col in range(6)
+        )
+
+    @classmethod
+    def _style_cell_text(cls, cell: Any, bold: bool | None = None, font_color: str | None = None) -> None:
+        paragraphs = getattr(cell, "paragraphs", None)
+        if not paragraphs:
+            return
+
+        for paragraph in paragraphs:
+            runs = getattr(paragraph, "runs", [])
+            if not runs and paragraph.text:
+                run = paragraph.add_run(paragraph.text)
+                paragraph.text = ""
+                runs = [run]
+            for run in runs:
+                cls._set_run_font(run, bold=bold, font_color=font_color)
+
+    @classmethod
+    def _set_run_font(cls, run: Any, bold: bool | None = None, font_color: str | None = None) -> None:
+        font = getattr(run, "font", None)
+        if font is None:
+            return
+
+        if bold is not None:
+            font.bold = bold
+        font.name = cls.FONT_NAME
+
+        if font_color:
+            from docx.shared import RGBColor
+
+            font.color.rgb = RGBColor.from_string(font_color)
+
+        r_pr = getattr(run, "_element", None)
+        if r_pr is None:
+            return
+
+        r_fonts = run._element.rPr.rFonts if run._element.rPr is not None else None
+        if r_fonts is None:
+            from docx.oxml import OxmlElement
+            from docx.oxml.ns import qn
+
+            if run._element.rPr is None:
+                run._element.get_or_add_rPr()
+            r_fonts = OxmlElement("w:rFonts")
+            run._element.rPr.append(r_fonts)
+            r_fonts.set(qn("w:ascii"), cls.FONT_NAME)
+            r_fonts.set(qn("w:hAnsi"), cls.FONT_NAME)
+            r_fonts.set(qn("w:eastAsia"), cls.FONT_NAME)
+            r_fonts.set(qn("w:cs"), cls.FONT_NAME)
+        else:
+            from docx.oxml.ns import qn
+
+            r_fonts.set(qn("w:ascii"), cls.FONT_NAME)
+            r_fonts.set(qn("w:hAnsi"), cls.FONT_NAME)
+            r_fonts.set(qn("w:eastAsia"), cls.FONT_NAME)
+            r_fonts.set(qn("w:cs"), cls.FONT_NAME)
+
+    @staticmethod
+    def _set_cell_fill(cell: Any, fill_hex: str) -> None:
+        tc_pr = cell._tc.get_or_add_tcPr() if hasattr(cell, "_tc") else None
+        if tc_pr is None:
+            return
+
+        from docx.oxml import OxmlElement
+        from docx.oxml.ns import qn
+
+        for child in tc_pr.findall(qn("w:shd")):
+            tc_pr.remove(child)
+
+        shd = OxmlElement("w:shd")
+        shd.set(qn("w:val"), "clear")
+        shd.set(qn("w:color"), "auto")
+        shd.set(qn("w:fill"), fill_hex)
+        tc_pr.append(shd)
+
+    def _apply_global_font(self, document: "DocxDocument") -> None:
+        for paragraph in document.paragraphs:
+            for run in getattr(paragraph, "runs", []):
+                self._set_run_font(run)
+
+        for table in document.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    for paragraph in getattr(cell, "paragraphs", []):
+                        for run in getattr(paragraph, "runs", []):
+                            self._set_run_font(run)
+
+    def _has_disclaimer_text(self, document: "DocxDocument") -> bool:
+        disclaimer_tokens = ["本報告所提供之心理天賦優勢分析", "本報告依細胞分子生物學分析及統計資料"]
+        for paragraph in document.paragraphs:
+            text = paragraph.text.strip()
+            if any(token in text for token in disclaimer_tokens):
+                return True
+        return False
+
     def _apply_page_layout(self, document: "DocxDocument") -> None:
-        for section in getattr(document, "sections", []):
+        sections = list(getattr(document, "sections", []))
+        if not sections:
+            return
+
+        target_sections = sections
+        if self._has_disclaimer_text(document) and len(sections) > 1:
+            target_sections = sections[:-1]
+
+        for section in target_sections:
             section.top_margin = self.TOP_MARGIN_EMU
             section.left_margin = self.SIDE_BOTTOM_MARGIN_EMU
             section.right_margin = self.SIDE_BOTTOM_MARGIN_EMU
@@ -257,6 +500,7 @@ class WordReportConverter:
         sid = self._sanitize_filename_part(sample_id)
         person = self._sanitize_filename_part(name)
         return f"台-{sid}_{person}-天賦30項.docx"
+
     GENE_ROW_HEIGHT_EMU = int(1.9 * 360000)
     TOP_MARGIN_EMU = int(0.75 * 360000)
     SIDE_BOTTOM_MARGIN_EMU = int(1.0 * 360000)

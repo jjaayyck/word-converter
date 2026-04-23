@@ -110,6 +110,28 @@ def test_output_filename_format() -> None:
     assert output == "台-APT-01-00XXXX_王曉明-天賦30項.docx"
 
 
+def test_convert_table_headers_replaces_main_table_titles() -> None:
+    converter = WordReportConverter()
+    main_table = _build_main_table()
+    doc = FakeDocument(paragraphs=[], tables=[main_table])
+
+    converter._convert_table_headers(doc)
+
+    headers = [cell.text for cell in main_table.rows[0].cells]
+    assert headers == ["編 號", "心理天賦項目", "細胞解碼位點", "解碼型", "心理潛能優勢評估", "心理潛能優勢評分"]
+
+
+
+
+def test_convert_table_headers_keeps_name_label_unchanged() -> None:
+    converter = WordReportConverter()
+    table = FakeTable(rows=[FakeRow(cells=[FakeCell("姓名"), FakeCell("送檢編號")])])
+    doc = FakeDocument(paragraphs=[], tables=[table])
+
+    converter._convert_table_headers(doc)
+
+    assert table.rows[0].cells[0].text == "姓名"
+
 def test_convert_cell_codes_only_on_main_table() -> None:
     converter = WordReportConverter()
     main_table = _build_main_table()
@@ -129,6 +151,18 @@ def test_convert_cell_codes_only_on_main_table() -> None:
     assert doc.paragraphs[0].text == "段落中 CNTF 不應被替換"
     assert converter.last_cell_code_report["table_count"] == 2
     assert converter.last_cell_code_report["main_table_index"] == 1
+
+
+def test_convert_cell_codes_still_works_after_header_replacement() -> None:
+    converter = WordReportConverter()
+    main_table = _build_main_table()
+    doc = FakeDocument(paragraphs=[], tables=[main_table])
+
+    converter._convert_table_headers(doc)
+    converter._convert_cell_codes(doc)
+
+    assert main_table.rows[1].cells[2].text == "MN001"
+    assert converter.last_cell_code_report["main_table_index"] == 0
 
 
 def test_convert_cell_codes_distinguishes_duplicate_legacy_codes() -> None:
@@ -197,6 +231,32 @@ def test_apply_fixed_text_replaces_text_inside_table_cells() -> None:
     assert table.rows[1].cells[1].text == "高分項目代表相對優勢，建議持續強化並轉化為日常表現。"
 
 
+def test_replace_recommendation_section_updates_name_and_templates() -> None:
+    converter = WordReportConverter()
+    main_table = _build_main_table()
+    main_table.rows[1].cells[1].text = "高特質"
+    main_table.rows[1].cells[4].text = "高"
+    main_table.rows[2].cells[1].text = "低特質"
+    main_table.rows[2].cells[4].text = "低"
+    doc = FakeDocument(
+        paragraphs=[
+            FakeParagraph("本報告所提供之心理天賦優勢分析"),
+            FakeParagraph("吳峻維"),
+            FakeParagraph("舊版健康管理文案"),
+        ],
+        tables=[main_table],
+    )
+
+    converter._replace_recommendation_section(doc, "王曉明")
+
+    all_text = "\n".join(p.text for p in doc.paragraphs)
+    assert "吳峻維" not in all_text
+    assert "心理潛能亮點建議" in all_text
+    assert "Guidance to Discover Your Hidden Strengths" in all_text
+    assert "王曉明" in all_text
+    assert "低分項目（低特質）" in all_text
+
+
 def test_apply_fixed_text_replaces_long_declaration_text() -> None:
     converter = WordReportConverter()
     old_text = (
@@ -229,6 +289,23 @@ def test_convert_cell_codes_updates_gene_row_height() -> None:
     assert main_table.rows[1].height == int(1.9 * 360000)
     assert main_table.rows[1].height_rule == 2
 
+
+
+
+def test_apply_page_layout_skips_last_section_when_disclaimer_exists() -> None:
+    converter = WordReportConverter()
+    section_a = FakeSection()
+    section_b = FakeSection()
+    doc = FakeDocument(
+        paragraphs=[FakeParagraph("本報告所提供之心理天賦優勢分析")],
+        tables=[],
+        sections=[section_a, section_b],
+    )
+
+    converter._apply_page_layout(doc)
+
+    assert section_a.top_margin == int(0.75 * 360000)
+    assert section_b.top_margin is None
 
 def test_apply_page_layout_updates_margins() -> None:
     converter = WordReportConverter()
