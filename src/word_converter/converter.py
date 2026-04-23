@@ -52,6 +52,7 @@ class WordReportConverter:
         self._convert_table_headers(document)
         self._convert_cell_codes(document)
         self._apply_fixed_text(document)
+        self._apply_page_layout(document)
 
         output_dir_path = Path(output_dir)
         output_dir_path.mkdir(parents=True, exist_ok=True)
@@ -193,6 +194,7 @@ class WordReportConverter:
                 new_code = self.cell_code_mapping.get((feature_name, old_code))
                 if new_code:
                     self._replace_cell_text(row.cells[2], new_code)
+                    self._set_row_height(row, self.GENE_ROW_HEIGHT_EMU)
                     replaced_count += 1
                 elif feature_name not in seen_unmapped:
                     seen_unmapped.add(feature_name)
@@ -208,11 +210,35 @@ class WordReportConverter:
 
     def _apply_fixed_text(self, document: "DocxDocument") -> None:
         for paragraph in document.paragraphs:
-            text = paragraph.text
-            for old, new in self.fixed_text_mapping.items():
-                text = text.replace(old, new)
-            if text != paragraph.text:
-                paragraph.text = text
+            replaced = self._replace_fixed_text(paragraph.text)
+            if replaced != paragraph.text:
+                paragraph.text = replaced
+
+        for table in document.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    replaced = self._replace_fixed_text(cell.text)
+                    if replaced != cell.text:
+                        self._replace_cell_text(cell, replaced)
+
+    def _replace_fixed_text(self, text: str) -> str:
+        replaced = text
+        for old, new in self.fixed_text_mapping.items():
+            replaced = replaced.replace(old, new)
+        return replaced
+
+    def _apply_page_layout(self, document: "DocxDocument") -> None:
+        for section in getattr(document, "sections", []):
+            section.top_margin = self.TOP_MARGIN_EMU
+            section.left_margin = self.SIDE_BOTTOM_MARGIN_EMU
+            section.right_margin = self.SIDE_BOTTOM_MARGIN_EMU
+            section.bottom_margin = self.SIDE_BOTTOM_MARGIN_EMU
+
+    @staticmethod
+    def _set_row_height(row: Any, height_emu: int) -> None:
+        row.height = height_emu
+        if hasattr(row, "height_rule"):
+            row.height_rule = 2  # WD_ROW_HEIGHT_RULE.EXACTLY
 
     @staticmethod
     def _replace_cell_text(cell: "_Cell", text: str) -> None:
@@ -231,3 +257,6 @@ class WordReportConverter:
         sid = self._sanitize_filename_part(sample_id)
         person = self._sanitize_filename_part(name)
         return f"台-{sid}_{person}-天賦30項.docx"
+    GENE_ROW_HEIGHT_EMU = int(1.9 * 360000)
+    TOP_MARGIN_EMU = int(0.75 * 360000)
+    SIDE_BOTTOM_MARGIN_EMU = int(1.0 * 360000)
