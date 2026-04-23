@@ -110,6 +110,17 @@ def test_output_filename_format() -> None:
     assert output == "台-APT-01-00XXXX_王曉明-天賦30項.docx"
 
 
+def test_convert_table_headers_replaces_main_table_titles() -> None:
+    converter = WordReportConverter()
+    main_table = _build_main_table()
+    doc = FakeDocument(paragraphs=[], tables=[main_table])
+
+    converter._convert_table_headers(doc)
+
+    headers = [cell.text for cell in main_table.rows[0].cells]
+    assert headers == ["編 號", "心理天賦項目", "細胞解碼位點", "解碼型", "心理潛能優勢評估", "心理潛能優勢評分"]
+
+
 def test_convert_cell_codes_only_on_main_table() -> None:
     converter = WordReportConverter()
     main_table = _build_main_table()
@@ -129,6 +140,18 @@ def test_convert_cell_codes_only_on_main_table() -> None:
     assert doc.paragraphs[0].text == "段落中 CNTF 不應被替換"
     assert converter.last_cell_code_report["table_count"] == 2
     assert converter.last_cell_code_report["main_table_index"] == 1
+
+
+def test_convert_cell_codes_still_works_after_header_replacement() -> None:
+    converter = WordReportConverter()
+    main_table = _build_main_table()
+    doc = FakeDocument(paragraphs=[], tables=[main_table])
+
+    converter._convert_table_headers(doc)
+    converter._convert_cell_codes(doc)
+
+    assert main_table.rows[1].cells[2].text == "MN001"
+    assert converter.last_cell_code_report["main_table_index"] == 0
 
 
 def test_convert_cell_codes_distinguishes_duplicate_legacy_codes() -> None:
