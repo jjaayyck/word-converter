@@ -35,6 +35,8 @@ class WordReportConverter:
     HEADER_FONT_COLOR = "FFFFFF"
     ORANGE_LABEL_FILL_COLOR = "ED7D31"
     GREEN_LABEL_FILL_COLOR = "92D050"
+    RECOMMEND_BORDER_COLOR = "ED7D31"
+    RECOMMEND_BORDER_SIZE_EIGHTHS = 18  # 2 1/4 pt
     FONT_NAME = "微軟正黑體"
 
     LEGACY_MAIN_HEADERS = ["編號", "功能", "細胞解碼位點", "解碼型", "健康優勢評估", "健康優勢評分"]
@@ -255,6 +257,8 @@ class WordReportConverter:
         for text in self._build_recommendation_paragraphs(name, high_features, low_features):
             self._append_paragraph(document, text)
 
+        self._append_high_score_tables(document, high_features)
+
     def _find_disclaimer_anchor_index(self, paragraphs: list[Any]) -> int | None:
         disclaimer_tokens = ("本報告所提供之心理天賦優勢分析", "本報告依細胞分子生物學分析及統計資料")
         for idx, paragraph in enumerate(paragraphs):
@@ -317,7 +321,6 @@ class WordReportConverter:
     def _build_recommendation_paragraphs(self, name: str, high_features: list[str], low_features: list[str]) -> list[str]:
         high_text = "、".join(high_features) if high_features else "綜合能力"
         high_count_text = str(len(high_features)) if high_features else "多"
-        low_text = "、".join(low_features) if low_features else "待強化能力"
         return [
             "_____",
             name,
@@ -329,10 +332,74 @@ class WordReportConverter:
                 f"您在此次的分析項目中，{high_text}等共{high_count_text}項優勢評估分數較高，"
                 "在此，也提供給您改善及建議方針："
             ),
-            "【高分項目建議】善用高分特質建立個人節奏，將優勢落實到學習、人際與目標執行。",
-            f"低分項目（{low_text}）代表目前較需補強，建議透過練習與習慣養成逐步改善。",
-            "【低分項目建議】採用小步驟、可追蹤的方式持續累積，逐步提升心理韌性與自我效能。",
         ]
+
+    def _append_high_score_tables(self, document: "DocxDocument", high_features: list[str]) -> None:
+        if not hasattr(document, "add_table"):
+            return
+
+        feature_items = high_features or ["綜合能力"]
+        for index, feature in enumerate(feature_items):
+            table = document.add_table(rows=2, cols=1)
+            header_cell = table.rows[0].cells[0]
+            body_cell = table.rows[1].cells[0]
+
+            self._replace_cell_text(header_cell, feature)
+            self._replace_cell_text(body_cell, "◆ 建議內容可依實際需求補充。")
+
+            self._set_cell_fill(header_cell, self.HEADER_FILL_COLOR)
+            self._style_cell_text(header_cell, bold=True, font_color=self.HEADER_FONT_COLOR)
+            self._style_cell_text(body_cell)
+            self._set_table_border(table, color=self.RECOMMEND_BORDER_COLOR, size_eighths=self.RECOMMEND_BORDER_SIZE_EIGHTHS)
+            self._set_row_height_pt(table.rows[0], 19)
+            self._set_row_height_pt(table.rows[1], 19)
+
+            spacer = document.add_paragraph("")
+            self._set_paragraph_spacing_pt(spacer, line_spacing_pt=6)
+
+            if index < len(feature_items) - 1:
+                between = document.add_paragraph("")
+                self._set_paragraph_spacing_pt(between, line_spacing_pt=19)
+
+    @staticmethod
+    def _set_table_border(table: Any, color: str, size_eighths: int) -> None:
+        from docx.oxml import OxmlElement
+        from docx.oxml.ns import qn
+
+        tbl_pr = table._tbl.tblPr if hasattr(table, "_tbl") else None
+        if tbl_pr is None:
+            return
+
+        for old_border in tbl_pr.findall(qn("w:tblBorders")):
+            tbl_pr.remove(old_border)
+
+        borders = OxmlElement("w:tblBorders")
+        for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
+            edge_el = OxmlElement(f"w:{edge}")
+            edge_el.set(qn("w:val"), "single")
+            edge_el.set(qn("w:sz"), str(size_eighths))
+            edge_el.set(qn("w:space"), "0")
+            edge_el.set(qn("w:color"), color)
+            borders.append(edge_el)
+        tbl_pr.append(borders)
+
+    @staticmethod
+    def _set_paragraph_spacing_pt(paragraph: Any, line_spacing_pt: int) -> None:
+        if not hasattr(paragraph, "paragraph_format"):
+            return
+        from docx.shared import Pt
+
+        paragraph.paragraph_format.space_before = Pt(0)
+        paragraph.paragraph_format.space_after = Pt(0)
+        paragraph.paragraph_format.line_spacing = Pt(line_spacing_pt)
+
+    @staticmethod
+    def _set_row_height_pt(row: Any, height_pt: int) -> None:
+        from docx.shared import Pt
+
+        row.height = Pt(height_pt)
+        if hasattr(row, "height_rule"):
+            row.height_rule = 2
 
     def _apply_table_styles(self, document: "DocxDocument") -> None:
         for table in document.tables:
