@@ -215,6 +215,24 @@ def test_apply_fixed_text_replaces_declaration_and_score_item_texts() -> None:
     assert doc.paragraphs[2].text == "低分項目代表目前較需補強，建議透過訓練與習慣養成逐步改善。"
 
 
+def test_apply_fixed_text_replaces_legacy_low_score_recommendation_template() -> None:
+    converter = WordReportConverter()
+    old_text = (
+        "感謝您接受健康趨勢細胞解碼檢測，由檢測結果得知，您在此次的分析項目中，"
+        "想像力、情感分享力、挫折耐受力、危機處理力、膽量、挑戰力等共六項健康優勢評估分數較低，"
+        "在此，也提供給您改善及建議方針："
+    )
+    doc = FakeDocument(paragraphs=[FakeParagraph(old_text)], tables=[])
+
+    converter._apply_fixed_text(doc)
+
+    assert doc.paragraphs[0].text == (
+        "感謝您接受心理潛能細胞解碼檢測，由檢測結果得知，您在此次的分析項目中，"
+        "想像力、情感分享力、挫折耐受力、危機處理力、膽量、挑戰力等共六項優勢評估分數較低，"
+        "在此，也提供給您改善及建議方針："
+    )
+
+
 def test_apply_fixed_text_replaces_text_inside_table_cells() -> None:
     converter = WordReportConverter()
     table = FakeTable(
@@ -384,3 +402,63 @@ def test_replace_recommendation_section_uses_actual_high_feature_count_text() ->
 
     all_text = "\n".join(p.text for p in doc.paragraphs)
     assert "共6項" in all_text
+
+
+def test_replace_recommendation_section_inserts_page_break_before_low_anchor() -> None:
+    converter = WordReportConverter()
+    main_table = _build_main_table()
+    main_table.rows[1].cells[4].text = "高"
+    main_table.rows[2].cells[4].text = "低"
+
+    low_anchor = FakeParagraph("感謝您接受健康趨勢細胞解碼檢測")
+    doc = FakeDocument(
+        paragraphs=[
+            FakeParagraph("本報告所提供之心理天賦優勢分析"),
+            low_anchor,
+        ],
+        tables=[main_table],
+    )
+
+    converter._replace_recommendation_section(doc, "王曉明")
+
+    low_idx = doc.paragraphs.index(low_anchor)
+    assert low_idx > 0
+    assert doc.paragraphs[low_idx - 1].text == "\f"
+
+
+def test_recommendation_section_applies_summary_emphasis_and_non_placeholder_suggestion() -> None:
+    from docx import Document
+
+    converter = WordReportConverter()
+    doc = Document()
+    doc.add_paragraph("本報告所提供之心理天賦優勢分析")
+    doc.add_paragraph("感謝您接受心理潛能細胞解碼檢測，以下為低分建議區塊。")
+    doc.add_paragraph("文件結尾段落")
+
+    table = doc.add_table(rows=3, cols=6)
+    headers = ["編號", "功能", "細胞解碼位點", "解碼型", "健康優勢評估", "健康優勢評分"]
+    for idx, header in enumerate(headers):
+        table.rows[0].cells[idx].text = header
+    table.rows[1].cells[1].text = "空間感"
+    table.rows[1].cells[4].text = "高"
+    table.rows[2].cells[1].text = "想像力"
+    table.rows[2].cells[4].text = "低"
+
+    converter._replace_recommendation_section(doc, "王曉明")
+    converter._highlight_score_emphasis_text(doc)
+
+    texts = [p.text for p in doc.paragraphs]
+    summary_idx = next(i for i, text in enumerate(texts) if "優勢評估分數較高" in text)
+    low_anchor_idx = next(i for i, text in enumerate(texts) if "以下為低分建議區塊" in text)
+    assert summary_idx < low_anchor_idx
+    assert texts[-1] == "文件結尾段落"
+    assert any("以下為低分建議區塊" in text for text in texts)
+
+    summary_paragraph = doc.paragraphs[summary_idx]
+    emphasis_run = next(run for run in summary_paragraph.runs if "優勢評估分數較高" in run.text)
+    assert emphasis_run.bold is True
+    assert emphasis_run.font.color.rgb is not None
+    assert str(emphasis_run.font.color.rgb) == "ED0000"
+
+    all_table_text = [cell.text for t in doc.tables for row in t.rows for cell in row.cells]
+    assert "◆ 建議內容可依實際需求補充。" not in all_table_text
