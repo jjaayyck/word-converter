@@ -255,13 +255,40 @@ class WordReportConverter:
             return
 
         high_features, low_features = self._collect_scored_features(document)
-        self._remove_paragraphs_after_index(document, anchor_index)
+        low_anchor = self._find_low_score_anchor_paragraph(document, low_features)
+
+        self._remove_existing_high_block_between_disclaimer_and_low_anchor(document, anchor_index, low_anchor)
 
         for text in self._build_recommendation_paragraphs(name, high_features, low_features):
-            self._append_paragraph(document, text)
+            self._insert_paragraph_before_anchor(document, low_anchor, text)
 
-        self._append_high_score_tables(document, high_features)
-        self._append_page_break(document)
+        self._insert_high_score_tables_before_anchor(document, high_features, low_anchor)
+
+        if low_anchor is None:
+            self._append_page_break(document)
+
+    def _remove_existing_high_block_between_disclaimer_and_low_anchor(
+        self,
+        document: "DocxDocument",
+        disclaimer_index: int,
+        low_anchor: Any | None,
+    ) -> None:
+        paragraphs = getattr(document, "paragraphs", [])
+        if low_anchor is None or low_anchor not in paragraphs:
+            return
+
+        low_anchor_index = paragraphs.index(low_anchor)
+        if low_anchor_index <= disclaimer_index + 1:
+            return
+
+        if isinstance(paragraphs, list):
+            del paragraphs[disclaimer_index + 1 : low_anchor_index]
+            return
+
+        for paragraph in list(paragraphs[disclaimer_index + 1 : low_anchor_index]):
+            p = paragraph._element
+            p.getparent().remove(p)
+            p._p = p._element = None
 
     def _find_disclaimer_anchor_index(self, paragraphs: list[Any]) -> int | None:
         disclaimer_tokens = ("本報告所提供之心理天賦優勢分析", "本報告依細胞分子生物學分析及統計資料")
@@ -297,30 +324,112 @@ class WordReportConverter:
 
         return high_features, low_features
 
-    def _remove_paragraphs_after_index(self, document: "DocxDocument", anchor_index: int) -> None:
-        paragraphs = getattr(document, "paragraphs", [])
-        if isinstance(paragraphs, list):
-            del paragraphs[anchor_index + 1 :]
-            return
+    def _find_low_score_anchor_paragraph(self, document: "DocxDocument", low_features: list[str]) -> Any | None:
+        tokens = ["感謝您接受健康趨勢細胞解碼檢測", "想像力"]
+        tokens.extend(feature for feature in low_features if feature)
 
-        for paragraph in list(paragraphs[anchor_index + 1 :]):
-            p = paragraph._element
-            p.getparent().remove(p)
-            p._p = p._element = None
+        for paragraph in getattr(document, "paragraphs", []):
+            text = getattr(paragraph, "text", "")
+            if any(token in text for token in tokens):
+                return paragraph
+
+        return None
 
     @staticmethod
-    def _append_paragraph(document: "DocxDocument", text: str) -> None:
-        if hasattr(document, "add_paragraph"):
-            document.add_paragraph(text)
+    def _insert_paragraph_before_anchor(document: "DocxDocument", anchor_paragraph: Any | None, text: str) -> None:
+        if anchor_paragraph is not None and hasattr(anchor_paragraph, "insert_paragraph_before"):
+            anchor_paragraph.insert_paragraph_before(text)
             return
+
         if hasattr(document, "paragraphs") and isinstance(document.paragraphs, list):
             paragraph_cls = type(document.paragraphs[0]) if document.paragraphs else None
             if paragraph_cls is not None:
-                document.paragraphs.append(paragraph_cls(text=text))
+                new_paragraph = paragraph_cls(text=text)
             else:
                 from types import SimpleNamespace
 
-                document.paragraphs.append(SimpleNamespace(text=text))
+                new_paragraph = SimpleNamespace(text=text)
+
+            if anchor_paragraph is not None and anchor_paragraph in document.paragraphs:
+                anchor_index = document.paragraphs.index(anchor_paragraph)
+                document.paragraphs.insert(anchor_index, new_paragraph)
+            else:
+                document.paragraphs.append(new_paragraph)
+            return
+
+        if hasattr(document, "add_paragraph"):
+            document.add_paragraph(text)
+
+    def _insert_high_score_tables_before_anchor(
+        self,
+        document: "DocxDocument",
+        high_features: list[str],
+        anchor_paragraph: Any | None,
+    ) -> None:
+        if not hasattr(document, "add_table"):
+            return
+
+        feature_items = high_features or ["綜合能力"]
+        for index, feature in enumerate(feature_items):
+            header_table = document.add_table(rows=1, cols=1)
+            if anchor_paragraph is not None and hasattr(anchor_paragraph, "_p") and hasattr(header_table, "_tbl"):
+                anchor_paragraph._p.addprevious(header_table._tbl)
+            header_cell = header_table.rows[0].cells[0]
+
+            self._replace_cell_text(header_cell, feature)
+            self._set_cell_fill(header_cell, self.HEADER_FILL_COLOR)
+            self._style_cell_text(header_cell, bold=True, font_color=self.HEADER_FONT_COLOR, font_size_pt=18)
+            self._set_table_border(
+                header_table,
+                color=self.DARK_BORDER_COLOR,
+                size_eighths=self.HEADER_BORDER_SIZE_EIGHTHS,
+            )
+            self._set_row_height_cm(header_table.rows[0], 0.86)
+
+            spacer = self._insert_or_append_spacer_paragraph(document, anchor_paragraph)
+            self._set_paragraph_spacing_pt(spacer, line_spacing_pt=6)
+
+            suggestion_table = document.add_table(rows=1, cols=1)
+            if anchor_paragraph is not None and hasattr(anchor_paragraph, "_p") and hasattr(suggestion_table, "_tbl"):
+                anchor_paragraph._p.addprevious(suggestion_table._tbl)
+            suggestion_cell = suggestion_table.rows[0].cells[0]
+            self._replace_cell_text(suggestion_cell, "◆ 建議內容可依實際需求補充。")
+            self._style_cell_text(suggestion_cell)
+            self._set_table_border(
+                suggestion_table,
+                color=self.RECOMMEND_BORDER_COLOR,
+                size_eighths=self.RECOMMEND_BORDER_SIZE_EIGHTHS,
+            )
+            self._set_row_height_cm(suggestion_table.rows[0], 7)
+
+            if index < len(feature_items) - 1:
+                between = self._insert_or_append_spacer_paragraph(document, anchor_paragraph)
+                self._set_paragraph_spacing_pt(between, line_spacing_pt=19)
+
+    @staticmethod
+    def _insert_or_append_spacer_paragraph(document: "DocxDocument", anchor_paragraph: Any | None) -> Any:
+        if anchor_paragraph is not None and hasattr(anchor_paragraph, "insert_paragraph_before"):
+            return anchor_paragraph.insert_paragraph_before("")
+
+        if hasattr(document, "add_paragraph"):
+            return document.add_paragraph("")
+
+        if hasattr(document, "paragraphs") and isinstance(document.paragraphs, list):
+            paragraph_cls = type(document.paragraphs[0]) if document.paragraphs else None
+            if paragraph_cls is not None:
+                paragraph = paragraph_cls(text="")
+            else:
+                from types import SimpleNamespace
+
+                paragraph = SimpleNamespace(text="")
+            if anchor_paragraph is not None and anchor_paragraph in document.paragraphs:
+                anchor_index = document.paragraphs.index(anchor_paragraph)
+                document.paragraphs.insert(anchor_index, paragraph)
+            else:
+                document.paragraphs.append(paragraph)
+            return paragraph
+
+        raise AttributeError("Document does not support paragraph insertion")
 
     @staticmethod
     def _append_page_break(document: "DocxDocument") -> None:
@@ -348,43 +457,6 @@ class WordReportConverter:
                 "在此，也提供給您改善及建議方針："
             ),
         ]
-
-    def _append_high_score_tables(self, document: "DocxDocument", high_features: list[str]) -> None:
-        if not hasattr(document, "add_table"):
-            return
-
-        feature_items = high_features or ["綜合能力"]
-        for index, feature in enumerate(feature_items):
-            header_table = document.add_table(rows=1, cols=1)
-            header_cell = header_table.rows[0].cells[0]
-
-            self._replace_cell_text(header_cell, feature)
-            self._set_cell_fill(header_cell, self.HEADER_FILL_COLOR)
-            self._style_cell_text(header_cell, bold=True, font_color=self.HEADER_FONT_COLOR, font_size_pt=18)
-            self._set_table_border(
-                header_table,
-                color=self.DARK_BORDER_COLOR,
-                size_eighths=self.HEADER_BORDER_SIZE_EIGHTHS,
-            )
-            self._set_row_height_cm(header_table.rows[0], 0.86)
-
-            spacer = document.add_paragraph("")
-            self._set_paragraph_spacing_pt(spacer, line_spacing_pt=6)
-
-            suggestion_table = document.add_table(rows=1, cols=1)
-            suggestion_cell = suggestion_table.rows[0].cells[0]
-            self._replace_cell_text(suggestion_cell, "◆ 建議內容可依實際需求補充。")
-            self._style_cell_text(suggestion_cell)
-            self._set_table_border(
-                suggestion_table,
-                color=self.RECOMMEND_BORDER_COLOR,
-                size_eighths=self.RECOMMEND_BORDER_SIZE_EIGHTHS,
-            )
-            self._set_row_height_cm(suggestion_table.rows[0], 7)
-
-            if index < len(feature_items) - 1:
-                between = document.add_paragraph("")
-                self._set_paragraph_spacing_pt(between, line_spacing_pt=19)
 
     @staticmethod
     def _set_table_border(table: Any, color: str, size_eighths: int) -> None:

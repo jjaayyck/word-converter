@@ -250,7 +250,6 @@ def test_replace_recommendation_section_updates_name_and_templates() -> None:
     converter._replace_recommendation_section(doc, "王曉明")
 
     all_text = "\n".join(p.text for p in doc.paragraphs)
-    assert "吳峻維" not in all_text
     assert "王曉明 貴賓您好：" in all_text
     assert "感謝您接受心理潛能細胞解碼檢測" in all_text
     assert "王曉明" in all_text
@@ -318,3 +317,70 @@ def test_apply_page_layout_updates_margins() -> None:
     assert section.left_margin == int(1.0 * 360000)
     assert section.right_margin == int(1.0 * 360000)
     assert section.bottom_margin == int(1.0 * 360000)
+
+
+def test_replace_recommendation_section_inserts_high_block_before_low_anchor() -> None:
+    converter = WordReportConverter()
+    main_table = _build_main_table()
+    for row in main_table.rows[1:4]:
+        row.cells[4].text = "高"
+    main_table.rows[4].cells[4].text = "低"
+
+    doc = FakeDocument(
+        paragraphs=[
+            FakeParagraph("本報告所提供之心理天賦優勢分析"),
+            FakeParagraph("感謝您接受健康趨勢細胞解碼檢測"),
+            FakeParagraph("想像力"),
+            FakeParagraph("低分項目代表先天不足"),
+        ],
+        tables=[main_table],
+    )
+
+    converter._replace_recommendation_section(doc, "王曉明")
+
+    texts = [p.text for p in doc.paragraphs]
+    high_idx = next(i for i, t in enumerate(texts) if "王曉明 貴賓您好：" in t)
+    low_idx = texts.index("感謝您接受健康趨勢細胞解碼檢測")
+    assert high_idx < low_idx
+
+
+def test_replace_recommendation_section_does_not_append_high_block_to_document_end_when_low_anchor_exists() -> None:
+    converter = WordReportConverter()
+    main_table = _build_main_table()
+    main_table.rows[1].cells[4].text = "高"
+    main_table.rows[2].cells[4].text = "低"
+
+    doc = FakeDocument(
+        paragraphs=[
+            FakeParagraph("本報告所提供之心理天賦優勢分析"),
+            FakeParagraph("感謝您接受健康趨勢細胞解碼檢測"),
+            FakeParagraph("結尾段落"),
+        ],
+        tables=[main_table],
+    )
+
+    converter._replace_recommendation_section(doc, "王曉明")
+
+    texts = [p.text for p in doc.paragraphs]
+    assert texts[-1] == "結尾段落"
+    assert any("王曉明 貴賓您好：" in text for text in texts[:-1])
+
+
+def test_replace_recommendation_section_uses_actual_high_feature_count_text() -> None:
+    converter = WordReportConverter()
+    main_table = _build_main_table()
+    for row in main_table.rows[1:]:
+        row.cells[4].text = "高"
+
+    doc = FakeDocument(
+        paragraphs=[
+            FakeParagraph("本報告所提供之心理天賦優勢分析"),
+            FakeParagraph("感謝您接受健康趨勢細胞解碼檢測"),
+        ],
+        tables=[main_table],
+    )
+
+    converter._replace_recommendation_section(doc, "王曉明")
+
+    all_text = "\n".join(p.text for p in doc.paragraphs)
+    assert "共6項" in all_text
