@@ -215,6 +215,24 @@ def test_apply_fixed_text_replaces_declaration_and_score_item_texts() -> None:
     assert doc.paragraphs[2].text == "低分項目代表目前較需補強，建議透過訓練與習慣養成逐步改善。"
 
 
+def test_apply_fixed_text_replaces_legacy_low_score_recommendation_template() -> None:
+    converter = WordReportConverter()
+    old_text = (
+        "感謝您接受健康趨勢細胞解碼檢測，由檢測結果得知，您在此次的分析項目中，"
+        "想像力、情感分享力、挫折耐受力、危機處理力、膽量、挑戰力等共六項健康優勢評估分數較低，"
+        "在此，也提供給您改善及建議方針："
+    )
+    doc = FakeDocument(paragraphs=[FakeParagraph(old_text)], tables=[])
+
+    converter._apply_fixed_text(doc)
+
+    assert doc.paragraphs[0].text == (
+        "感謝您接受心理潛能細胞解碼檢測，由檢測結果得知，您在此次的分析項目中，"
+        "想像力、情感分享力、挫折耐受力、危機處理力、膽量、挑戰力等共六項優勢評估分數較低，"
+        "在此，也提供給您改善及建議方針："
+    )
+
+
 def test_apply_fixed_text_replaces_text_inside_table_cells() -> None:
     converter = WordReportConverter()
     table = FakeTable(
@@ -384,3 +402,25 @@ def test_replace_recommendation_section_uses_actual_high_feature_count_text() ->
 
     all_text = "\n".join(p.text for p in doc.paragraphs)
     assert "共6項" in all_text
+
+
+def test_replace_recommendation_section_inserts_page_break_before_low_anchor() -> None:
+    converter = WordReportConverter()
+    main_table = _build_main_table()
+    main_table.rows[1].cells[4].text = "高"
+    main_table.rows[2].cells[4].text = "低"
+
+    low_anchor = FakeParagraph("感謝您接受健康趨勢細胞解碼檢測")
+    doc = FakeDocument(
+        paragraphs=[
+            FakeParagraph("本報告所提供之心理天賦優勢分析"),
+            low_anchor,
+        ],
+        tables=[main_table],
+    )
+
+    converter._replace_recommendation_section(doc, "王曉明")
+
+    low_idx = doc.paragraphs.index(low_anchor)
+    assert low_idx > 0
+    assert doc.paragraphs[low_idx - 1].text == "\f"

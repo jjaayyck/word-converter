@@ -38,6 +38,7 @@ class WordReportConverter:
     DARK_BORDER_COLOR = "595959"
     HIGH_SCORE_FONT_COLOR = "00B050"
     RECOMMEND_BORDER_COLOR = "ED7D31"
+    EMPHASIS_FONT_COLOR = "ED0000"
     HEADER_BORDER_SIZE_EIGHTHS = 4  # 1/2 pt
     RECOMMEND_BORDER_SIZE_EIGHTHS = 18  # 2 1/4 pt
     FONT_NAME = "微軟正黑體"
@@ -73,6 +74,7 @@ class WordReportConverter:
         self._convert_cell_codes(document)
         self._apply_fixed_text(document)
         self._replace_recommendation_section(document, name)
+        self._highlight_score_emphasis_text(document)
         self._apply_table_styles(document)
         self._apply_page_layout(document)
         self._apply_global_font(document)
@@ -367,6 +369,7 @@ class WordReportConverter:
         anchor_paragraph: Any | None,
     ) -> None:
         if not hasattr(document, "add_table"):
+            self._insert_page_break_before_anchor(document, anchor_paragraph)
             return
 
         feature_items = high_features or ["綜合能力"]
@@ -384,7 +387,8 @@ class WordReportConverter:
                 color=self.DARK_BORDER_COLOR,
                 size_eighths=self.HEADER_BORDER_SIZE_EIGHTHS,
             )
-            self._set_row_height_cm(header_table.rows[0], 0.86)
+            self._set_row_height_pt(header_table.rows[0], 20)
+            self._set_cell_paragraph_line_spacing_pt(header_cell, 20)
 
             spacer = self._insert_or_append_spacer_paragraph(document, anchor_paragraph)
             self._set_paragraph_spacing_pt(spacer, line_spacing_pt=6)
@@ -395,6 +399,7 @@ class WordReportConverter:
             suggestion_cell = suggestion_table.rows[0].cells[0]
             self._replace_cell_text(suggestion_cell, "◆ 建議內容可依實際需求補充。")
             self._style_cell_text(suggestion_cell)
+            self._set_cell_paragraph_line_spacing_pt(suggestion_cell, 20)
             self._set_table_border(
                 suggestion_table,
                 color=self.RECOMMEND_BORDER_COLOR,
@@ -405,6 +410,35 @@ class WordReportConverter:
             if index < len(feature_items) - 1:
                 between = self._insert_or_append_spacer_paragraph(document, anchor_paragraph)
                 self._set_paragraph_spacing_pt(between, line_spacing_pt=19)
+            else:
+                self._insert_page_break_before_anchor(document, anchor_paragraph)
+
+    @staticmethod
+    def _insert_page_break_before_anchor(document: "DocxDocument", anchor_paragraph: Any | None) -> None:
+        if anchor_paragraph is not None and hasattr(anchor_paragraph, "insert_paragraph_before"):
+            paragraph = anchor_paragraph.insert_paragraph_before("")
+            if hasattr(paragraph, "add_run"):
+                run = paragraph.add_run()
+                try:
+                    from docx.enum.text import WD_BREAK
+
+                    run.add_break(WD_BREAK.PAGE)
+                except Exception:
+                    run.add_break()
+            return
+
+        if hasattr(document, "paragraphs") and isinstance(document.paragraphs, list):
+            from types import SimpleNamespace
+
+            paragraph = SimpleNamespace(text="\f")
+            if anchor_paragraph is not None and anchor_paragraph in document.paragraphs:
+                anchor_index = document.paragraphs.index(anchor_paragraph)
+                document.paragraphs.insert(anchor_index, paragraph)
+            else:
+                document.paragraphs.append(paragraph)
+            return
+
+        WordReportConverter._append_page_break(document)
 
     @staticmethod
     def _insert_or_append_spacer_paragraph(document: "DocxDocument", anchor_paragraph: Any | None) -> Any:
@@ -505,6 +539,55 @@ class WordReportConverter:
         row.height = Cm(height_cm)
         if hasattr(row, "height_rule"):
             row.height_rule = 2
+
+    @staticmethod
+    def _set_cell_paragraph_line_spacing_pt(cell: Any, line_spacing_pt: int) -> None:
+        for paragraph in getattr(cell, "paragraphs", []):
+            WordReportConverter._set_paragraph_spacing_pt(paragraph, line_spacing_pt)
+
+    def _highlight_score_emphasis_text(self, document: "DocxDocument") -> None:
+        targets = ("優勢評估分數較高", "優勢評估分數較低")
+        for paragraph in getattr(document, "paragraphs", []):
+            for target in targets:
+                self._highlight_text_in_paragraph(paragraph, target)
+
+        for table in getattr(document, "tables", []):
+            for row in getattr(table, "rows", []):
+                for cell in getattr(row, "cells", []):
+                    for paragraph in getattr(cell, "paragraphs", []):
+                        for target in targets:
+                            self._highlight_text_in_paragraph(paragraph, target)
+
+    def _highlight_text_in_paragraph(self, paragraph: Any, target: str) -> None:
+        text = getattr(paragraph, "text", "")
+        if target not in text or not hasattr(paragraph, "add_run"):
+            return
+
+        try:
+            from docx.shared import RGBColor
+        except ModuleNotFoundError:
+            return
+
+        if hasattr(paragraph, "clear"):
+            paragraph.clear()
+        else:
+            paragraph.text = ""
+
+        start = 0
+        while True:
+            idx = text.find(target, start)
+            if idx == -1:
+                remaining = text[start:]
+                if remaining:
+                    paragraph.add_run(remaining)
+                break
+            if idx > start:
+                paragraph.add_run(text[start:idx])
+            highlight_run = paragraph.add_run(target)
+            highlight_run.bold = True
+            if getattr(highlight_run, "font", None) is not None:
+                highlight_run.font.color.rgb = RGBColor.from_string(self.EMPHASIS_FONT_COLOR)
+            start = idx + len(target)
 
     def _apply_table_styles(self, document: "DocxDocument") -> None:
         for table in document.tables:
