@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 from .config import (
     CELL_CODE_MAPPING,
     FIXED_TEXT_MAPPING,
+    HIGH_SCORE_RECOMMENDATION_MAPPING,
     NAME_LABELS,
     SAMPLE_ID_LABELS,
     TABLE_HEADER_MAPPING,
@@ -61,6 +62,7 @@ class WordReportConverter:
         }
         self.cell_code_mapping = cell_code_mapping or CELL_CODE_MAPPING
         self.fixed_text_mapping = fixed_text_mapping or FIXED_TEXT_MAPPING
+        self.high_score_recommendation_mapping = HIGH_SCORE_RECOMMENDATION_MAPPING
         self.last_cell_code_report: dict[str, Any] = {}
 
     def convert(self, input_path: str | Path, output_dir: str | Path) -> ConversionResult:
@@ -261,6 +263,9 @@ class WordReportConverter:
 
         self._remove_existing_high_block_between_disclaimer_and_low_anchor(document, anchor_index, low_anchor)
 
+        if high_features and low_anchor is not None:
+            self._insert_page_break_before_anchor(document, low_anchor)
+
         for text in self._build_recommendation_paragraphs(name, high_features, low_features):
             self._insert_paragraph_before_anchor(document, low_anchor, text)
 
@@ -327,7 +332,7 @@ class WordReportConverter:
         return high_features, low_features
 
     def _find_low_score_anchor_paragraph(self, document: "DocxDocument", low_features: list[str]) -> Any | None:
-        tokens = ["感謝您接受健康趨勢細胞解碼檢測", "想像力"]
+        tokens = ["感謝您接受健康趨勢細胞解碼檢測", "感謝您接受心理潛能細胞解碼檢測", "想像力"]
         tokens.extend(feature for feature in low_features if feature)
 
         for paragraph in getattr(document, "paragraphs", []):
@@ -397,7 +402,7 @@ class WordReportConverter:
             if anchor_paragraph is not None and hasattr(anchor_paragraph, "_p") and hasattr(suggestion_table, "_tbl"):
                 anchor_paragraph._p.addprevious(suggestion_table._tbl)
             suggestion_cell = suggestion_table.rows[0].cells[0]
-            self._replace_cell_text(suggestion_cell, "◆ 建議內容可依實際需求補充。")
+            self._replace_cell_text(suggestion_cell, self._build_high_score_suggestion_text(feature))
             self._style_cell_text(suggestion_cell)
             self._set_cell_paragraph_line_spacing_pt(suggestion_cell, 20)
             self._set_table_border(
@@ -412,6 +417,12 @@ class WordReportConverter:
                 self._set_paragraph_spacing_pt(between, line_spacing_pt=19)
             else:
                 self._insert_page_break_before_anchor(document, anchor_paragraph)
+
+    def _build_high_score_suggestion_text(self, feature: str) -> str:
+        feature_key = feature.strip()
+        if feature_key in self.high_score_recommendation_mapping:
+            return self.high_score_recommendation_mapping[feature_key]
+        return f"◆ {feature_key}表現佳，建議持續練習並規律追蹤，將優勢穩定轉化為日常表現。"
 
     @staticmethod
     def _insert_page_break_before_anchor(document: "DocxDocument", anchor_paragraph: Any | None) -> None:

@@ -424,3 +424,41 @@ def test_replace_recommendation_section_inserts_page_break_before_low_anchor() -
     low_idx = doc.paragraphs.index(low_anchor)
     assert low_idx > 0
     assert doc.paragraphs[low_idx - 1].text == "\f"
+
+
+def test_recommendation_section_applies_summary_emphasis_and_non_placeholder_suggestion() -> None:
+    from docx import Document
+
+    converter = WordReportConverter()
+    doc = Document()
+    doc.add_paragraph("本報告所提供之心理天賦優勢分析")
+    doc.add_paragraph("感謝您接受心理潛能細胞解碼檢測，以下為低分建議區塊。")
+    doc.add_paragraph("文件結尾段落")
+
+    table = doc.add_table(rows=3, cols=6)
+    headers = ["編號", "功能", "細胞解碼位點", "解碼型", "健康優勢評估", "健康優勢評分"]
+    for idx, header in enumerate(headers):
+        table.rows[0].cells[idx].text = header
+    table.rows[1].cells[1].text = "空間感"
+    table.rows[1].cells[4].text = "高"
+    table.rows[2].cells[1].text = "想像力"
+    table.rows[2].cells[4].text = "低"
+
+    converter._replace_recommendation_section(doc, "王曉明")
+    converter._highlight_score_emphasis_text(doc)
+
+    texts = [p.text for p in doc.paragraphs]
+    summary_idx = next(i for i, text in enumerate(texts) if "優勢評估分數較高" in text)
+    low_anchor_idx = next(i for i, text in enumerate(texts) if "以下為低分建議區塊" in text)
+    assert summary_idx < low_anchor_idx
+    assert texts[-1] == "文件結尾段落"
+    assert any("以下為低分建議區塊" in text for text in texts)
+
+    summary_paragraph = doc.paragraphs[summary_idx]
+    emphasis_run = next(run for run in summary_paragraph.runs if "優勢評估分數較高" in run.text)
+    assert emphasis_run.bold is True
+    assert emphasis_run.font.color.rgb is not None
+    assert str(emphasis_run.font.color.rgb) == "ED0000"
+
+    all_table_text = [cell.text for t in doc.tables for row in t.rows for cell in row.cells]
+    assert "◆ 建議內容可依實際需求補充。" not in all_table_text
