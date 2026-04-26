@@ -268,10 +268,40 @@ def test_replace_recommendation_section_updates_name_and_templates() -> None:
     converter._replace_recommendation_section(doc, "王曉明")
 
     all_text = "\n".join(p.text for p in doc.paragraphs)
-    assert "王曉明 貴賓您好：" in all_text
+    assert "_____王曉明_____ 貴賓您好：" in all_text
+    assert "_____\n王曉明\n_____" not in all_text
     assert "感謝您接受心理潛能細胞解碼檢測" in all_text
     assert "王曉明" in all_text
     assert "高特質等共1項優勢評估分數較高" in all_text
+
+
+def test_replace_recommendation_section_inserts_greeting_before_low_score_section() -> None:
+    converter = WordReportConverter()
+    main_table = _build_main_table()
+    main_table.rows[1].cells[1].text = "高特質"
+    main_table.rows[1].cells[4].text = "高"
+    main_table.rows[2].cells[1].text = "低特質"
+    main_table.rows[2].cells[4].text = "低"
+    low_intro = (
+        "感謝您接受心理潛能細胞解碼檢測，由檢測結果得知，您在此次的分析項目中，"
+        "低特質等共1項優勢評估分數較低，在此，也提供給您改善及建議方針："
+    )
+    doc = FakeDocument(
+        paragraphs=[
+            FakeParagraph("本報告所提供之心理天賦優勢分析"),
+            FakeParagraph(low_intro),
+        ],
+        tables=[main_table],
+    )
+
+    converter._replace_recommendation_section(doc, "張西西")
+
+    all_text = [p.text for p in doc.paragraphs]
+    assert "_____張西西_____ 貴賓您好：" in all_text
+    low_index = all_text.index(low_intro)
+    greeting_indices = [idx for idx, text in enumerate(all_text) if text == "_____張西西_____ 貴賓您好："]
+    assert greeting_indices
+    assert greeting_indices[-1] < low_index
 
 
 def test_apply_fixed_text_replaces_long_declaration_text() -> None:
@@ -357,7 +387,7 @@ def test_replace_recommendation_section_inserts_high_block_before_low_anchor() -
     converter._replace_recommendation_section(doc, "王曉明")
 
     texts = [p.text for p in doc.paragraphs]
-    high_idx = next(i for i, t in enumerate(texts) if "王曉明 貴賓您好：" in t)
+    high_idx = next(i for i, t in enumerate(texts) if "_____王曉明_____ 貴賓您好：" in t)
     low_idx = texts.index("感謝您接受健康趨勢細胞解碼檢測")
     assert high_idx < low_idx
 
@@ -381,7 +411,7 @@ def test_replace_recommendation_section_does_not_append_high_block_to_document_e
 
     texts = [p.text for p in doc.paragraphs]
     assert texts[-1] == "結尾段落"
-    assert any("王曉明 貴賓您好：" in text for text in texts[:-1])
+    assert any("_____王曉明_____ 貴賓您好：" in text for text in texts[:-1])
 
 
 def test_replace_recommendation_section_uses_actual_high_feature_count_text() -> None:

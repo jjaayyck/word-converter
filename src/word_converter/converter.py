@@ -43,6 +43,7 @@ class WordReportConverter:
     HEADER_BORDER_SIZE_EIGHTHS = 4  # 1/2 pt
     RECOMMEND_BORDER_SIZE_EIGHTHS = 18  # 2 1/4 pt
     FONT_NAME = "微軟正黑體"
+    RECOMMENDATION_GREETING_FONT_SIZE_PT = 16
 
     LEGACY_MAIN_HEADERS = ["編號", "功能", "細胞解碼位點", "解碼型", "健康優勢評估", "健康優勢評分"]
     NEW_MAIN_HEADERS = ["編號", "心理天賦項目", "細胞解碼位點", "解碼型", "心理潛能優勢評估", "心理潛能優勢評分"]
@@ -266,8 +267,16 @@ class WordReportConverter:
         if high_features and low_anchor is not None:
             self._insert_page_break_before_anchor(document, low_anchor)
 
-        for text in self._build_recommendation_paragraphs(name, high_features, low_features):
-            self._insert_paragraph_before_anchor(document, low_anchor, text)
+        for text, font_size_pt in self._build_recommendation_paragraphs(name, high_features, low_features):
+            self._insert_paragraph_before_anchor(document, low_anchor, text, font_size_pt=font_size_pt)
+
+        if low_features:
+            self._insert_paragraph_before_anchor(
+                document,
+                low_anchor,
+                self._build_recommendation_greeting(name),
+                font_size_pt=self.RECOMMENDATION_GREETING_FONT_SIZE_PT,
+            )
 
         self._insert_high_score_tables_before_anchor(document, high_features, low_anchor)
 
@@ -343,9 +352,16 @@ class WordReportConverter:
         return None
 
     @staticmethod
-    def _insert_paragraph_before_anchor(document: "DocxDocument", anchor_paragraph: Any | None, text: str) -> None:
+    def _insert_paragraph_before_anchor(
+        document: "DocxDocument",
+        anchor_paragraph: Any | None,
+        text: str,
+        font_size_pt: int | None = None,
+    ) -> None:
         if anchor_paragraph is not None and hasattr(anchor_paragraph, "insert_paragraph_before"):
-            anchor_paragraph.insert_paragraph_before(text)
+            paragraph = anchor_paragraph.insert_paragraph_before(text)
+            if font_size_pt is not None:
+                WordReportConverter._style_paragraph_text(paragraph, font_size_pt=font_size_pt)
             return
 
         if hasattr(document, "paragraphs") and isinstance(document.paragraphs, list):
@@ -365,7 +381,9 @@ class WordReportConverter:
             return
 
         if hasattr(document, "add_paragraph"):
-            document.add_paragraph(text)
+            paragraph = document.add_paragraph(text)
+            if font_size_pt is not None:
+                WordReportConverter._style_paragraph_text(paragraph, font_size_pt=font_size_pt)
 
     def _insert_high_score_tables_before_anchor(
         self,
@@ -487,21 +505,37 @@ class WordReportConverter:
             except Exception:
                 run.add_break()
 
-    def _build_recommendation_paragraphs(self, name: str, high_features: list[str], low_features: list[str]) -> list[str]:
+    def _build_recommendation_greeting(self, name: str) -> str:
+        return f"_____{name}_____ 貴賓您好："
+
+    def _build_recommendation_paragraphs(
+        self,
+        name: str,
+        high_features: list[str],
+        low_features: list[str],
+    ) -> list[tuple[str, int | None]]:
         high_text = "、".join(high_features) if high_features else "綜合能力"
         high_count_text = str(len(high_features)) if high_features else "多"
         return [
-            "_____",
-            name,
-            "_____",
-            f"{name} 貴賓您好：",
-            "",
+            (self._build_recommendation_greeting(name), self.RECOMMENDATION_GREETING_FONT_SIZE_PT),
+            ("", None),
             (
                 "感謝您接受心理潛能細胞解碼檢測，由檢測結果得知，"
                 f"您在此次的分析項目中，{high_text}等共{high_count_text}項優勢評估分數較高，"
-                "在此，也提供給您改善及建議方針："
+                "在此，也提供給您改善及建議方針：",
+                None,
             ),
         ]
+
+    @classmethod
+    def _style_paragraph_text(cls, paragraph: Any, font_size_pt: int | None = None) -> None:
+        runs = getattr(paragraph, "runs", [])
+        if not runs and getattr(paragraph, "text", "") and hasattr(paragraph, "add_run"):
+            run = paragraph.add_run(paragraph.text)
+            paragraph.text = ""
+            runs = [run]
+        for run in runs:
+            cls._set_run_font(run, font_size_pt=font_size_pt)
 
     @staticmethod
     def _set_table_border(table: Any, color: str, size_eighths: int) -> None:
