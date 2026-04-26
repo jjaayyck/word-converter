@@ -363,6 +363,37 @@ def test_replace_recommendation_section_keeps_template_low_greeting_and_adds_onl
     assert all(greeting not in text for text in texts[high_intro_index + 1 : greeting_indexes[1]])
 
 
+def test_replace_recommendation_section_separates_high_and_low_insertion_paths() -> None:
+    converter = WordReportConverter()
+    main_table = _build_main_table()
+    main_table.rows[1].cells[1].text = "爆發力"
+    main_table.rows[1].cells[4].text = "高"
+    main_table.rows[2].cells[1].text = "低特質"
+    main_table.rows[2].cells[4].text = "低"
+    low_intro = "感謝您接受心理潛能細胞解碼檢測，由檢測結果得知，您在此次的分析項目中，低特質等共1項優勢評估分數較低，在此，也提供給您改善及建議方針："
+    doc = FakeDocument(
+        paragraphs=[
+            FakeParagraph("本報告所提供之心理天賦優勢分析"),
+            FakeParagraph("_____舊名字_____ 貴賓您好："),
+            FakeParagraph(low_intro),
+        ],
+        tables=[main_table],
+    )
+
+    converter._replace_recommendation_section(doc, "張西西")
+
+    texts = [p.text for p in doc.paragraphs]
+    greeting = "_____張西西_____ 貴賓您好："
+    greeting_indexes = [idx for idx, text in enumerate(texts) if text == greeting]
+    assert len(greeting_indexes) == 2
+
+    high_intro_index = next(idx for idx, text in enumerate(texts) if "優勢評估分數較高" in text)
+    low_intro_index = texts.index(low_intro)
+    assert greeting_indexes[0] + 1 == high_intro_index
+    assert any(text == "\f" for text in texts[high_intro_index + 1 : greeting_indexes[1]])
+    assert greeting_indexes[1] < low_intro_index
+
+
 def test_apply_fixed_text_replaces_long_declaration_text() -> None:
     converter = WordReportConverter()
     old_text = (
@@ -511,8 +542,9 @@ def test_replace_recommendation_section_inserts_page_break_before_low_anchor() -
     converter._replace_recommendation_section(doc, "王曉明")
 
     low_idx = doc.paragraphs.index(low_anchor)
-    assert low_idx > 0
-    assert doc.paragraphs[low_idx - 1].text == "\f"
+    assert low_idx > 1
+    assert doc.paragraphs[low_idx - 2].text == "\f"
+    assert doc.paragraphs[low_idx - 1].text == "_____王曉明_____ 貴賓您好："
 
 
 def test_recommendation_section_applies_summary_emphasis_and_non_placeholder_suggestion() -> None:

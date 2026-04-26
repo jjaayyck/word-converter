@@ -261,121 +261,92 @@ class WordReportConverter:
 
         high_features, low_features = self._collect_scored_features(document)
         low_anchor = self._find_low_score_anchor_paragraph(document, low_features)
-        low_greeting_anchor = self._find_existing_greeting_before_low_anchor(document, low_anchor)
-        high_insert_anchor = low_greeting_anchor or low_anchor
+        if low_anchor is None:
+            low_anchor = self._append_paragraph(document, self._build_low_score_intro(low_features))
+        high_greeting_anchor = self._find_first_recommendation_greeting_paragraph(document)
+        if low_anchor is None:
+            return
+        if high_greeting_anchor is None:
+            self._insert_paragraph_before_anchor(
+                document,
+                low_anchor,
+                self._build_recommendation_greeting(name),
+                font_size_pt=self.RECOMMENDATION_GREETING_FONT_SIZE_PT,
+            )
+            high_greeting_anchor = self._find_first_recommendation_greeting_paragraph(document)
+            if high_greeting_anchor is None:
+                return
 
-        if low_greeting_anchor is not None:
-            low_greeting_anchor.text = self._build_recommendation_greeting(name)
-            self._style_paragraph_text(low_greeting_anchor, font_size_pt=self.RECOMMENDATION_GREETING_FONT_SIZE_PT)
+        high_greeting_anchor.text = self._build_recommendation_greeting(name)
+        self._style_paragraph_text(high_greeting_anchor, font_size_pt=self.RECOMMENDATION_GREETING_FONT_SIZE_PT)
 
-        self._remove_existing_high_block_between_disclaimer_and_low_anchor(document, anchor_index, high_insert_anchor)
+        self._remove_existing_high_block_between_anchors(document, high_greeting_anchor, low_anchor)
 
-        if high_features and high_insert_anchor is not None:
-            self._insert_page_break_before_anchor(document, high_insert_anchor)
+        for text, font_size_pt in self._build_recommendation_paragraphs(high_features):
+            self._insert_paragraph_before_anchor(document, low_anchor, text, font_size_pt=font_size_pt)
 
+        self._insert_high_score_tables_before_anchor(document, high_features, low_anchor)
         self._insert_paragraph_before_anchor(
             document,
-            high_insert_anchor,
+            low_anchor,
             self._build_recommendation_greeting(name),
             font_size_pt=self.RECOMMENDATION_GREETING_FONT_SIZE_PT,
         )
-
-        for text, font_size_pt in self._build_recommendation_paragraphs(high_features):
-            self._insert_paragraph_before_anchor(document, high_insert_anchor, text, font_size_pt=font_size_pt)
-
-        self._insert_high_score_tables_before_anchor(document, high_features, high_insert_anchor)
-        self._normalize_recommendation_greetings(document, name)
+        self._remove_extra_recommendation_greetings(document, keep_count=2)
 
         if low_anchor is None:
             self._append_page_break(document)
 
-    def _normalize_recommendation_greetings(self, document: "DocxDocument", name: str) -> None:
-        greeting_text = self._build_recommendation_greeting(name)
+    @staticmethod
+    def _append_paragraph(document: "DocxDocument", text: str) -> Any | None:
+        if hasattr(document, "add_paragraph"):
+            return document.add_paragraph(text)
+        if hasattr(document, "paragraphs") and isinstance(document.paragraphs, list):
+            paragraph_cls = type(document.paragraphs[0]) if document.paragraphs else None
+            if paragraph_cls is not None:
+                paragraph = paragraph_cls(text=text)
+            else:
+                from types import SimpleNamespace
+
+                paragraph = SimpleNamespace(text=text)
+            document.paragraphs.append(paragraph)
+            return paragraph
+        return None
+
+    def _find_first_recommendation_greeting_paragraph(self, document: "DocxDocument") -> Any | None:
         greeting_pattern = re.compile(r"^_+.+_+\s*貴賓您好：\s*$")
+        for paragraph in getattr(document, "paragraphs", []):
+            if greeting_pattern.match(getattr(paragraph, "text", "").strip()):
+                return paragraph
+        return None
 
-        def _paragraph_key(paragraph: Any) -> Any:
-            return getattr(paragraph, "_p", getattr(paragraph, "_element", id(paragraph)))
-
-        def _state() -> tuple[list[Any], int | None, int | None]:
-            current = list(getattr(document, "paragraphs", []))
-            high_idx = next((idx for idx, p in enumerate(current) if "優勢評估分數較高" in getattr(p, "text", "")), None)
-            low_idx = next((idx for idx, p in enumerate(current) if "優勢評估分數較低" in getattr(p, "text", "")), None)
-            return current, high_idx, low_idx
-
-        current, high_idx, low_idx = _state()
-        if high_idx is None or low_idx is None:
+    def _remove_existing_high_block_between_anchors(
+        self,
+        document: "DocxDocument",
+        start_anchor: Any,
+        end_anchor: Any,
+    ) -> None:
+        paragraphs = getattr(document, "paragraphs", [])
+        if start_anchor not in paragraphs or end_anchor not in paragraphs:
             return
+        start_idx = paragraphs.index(start_anchor)
+        end_idx = paragraphs.index(end_anchor)
+        if end_idx <= start_idx + 1:
+            return
+        if isinstance(paragraphs, list):
+            del paragraphs[start_idx + 1 : end_idx]
+            return
+        for paragraph in list(paragraphs[start_idx + 1 : end_idx]):
+            self._remove_paragraph(document, paragraph)
 
-        high_greeting = next(
-            (
-                idx
-                for idx in range(high_idx - 1, -1, -1)
-                if greeting_pattern.match(getattr(current[idx], "text", "").strip())
-            ),
-            None,
-        )
-        if high_greeting is None:
-            self._insert_paragraph_before_anchor(
-                document,
-                current[high_idx],
-                greeting_text,
-                font_size_pt=self.RECOMMENDATION_GREETING_FONT_SIZE_PT,
-            )
-            current, high_idx, low_idx = _state()
-            if high_idx is None or low_idx is None:
-                return
-            high_greeting = next(
-                (
-                    idx
-                    for idx in range(high_idx - 1, -1, -1)
-                    if greeting_pattern.match(getattr(current[idx], "text", "").strip())
-                ),
-                None,
-            )
-            if high_greeting is None:
-                return
-
-        high_key = _paragraph_key(current[high_greeting])
-        low_greeting = next(
-            (
-                idx
-                for idx in range(low_idx - 1, -1, -1)
-                if greeting_pattern.match(getattr(current[idx], "text", "").strip())
-                and _paragraph_key(current[idx]) != high_key
-            ),
-            None,
-        )
-        if low_greeting is None:
-            self._insert_paragraph_before_anchor(
-                document,
-                current[low_idx],
-                greeting_text,
-                font_size_pt=self.RECOMMENDATION_GREETING_FONT_SIZE_PT,
-            )
-            current, _, low_idx = _state()
-            if low_idx is None:
-                return
-            low_greeting = next(
-                (
-                    idx
-                    for idx in range(low_idx - 1, -1, -1)
-                    if greeting_pattern.match(getattr(current[idx], "text", "").strip())
-                    and _paragraph_key(current[idx]) != high_key
-                ),
-                None,
-            )
-            if low_greeting is None:
-                return
-
-        selected = {_paragraph_key(current[high_greeting]), _paragraph_key(current[low_greeting])}
-        for paragraph in list(getattr(document, "paragraphs", [])):
-            text = getattr(paragraph, "text", "").strip()
-            if not greeting_pattern.match(text):
-                continue
-            if _paragraph_key(paragraph) in selected:
-                paragraph.text = greeting_text
-                self._style_paragraph_text(paragraph, font_size_pt=self.RECOMMENDATION_GREETING_FONT_SIZE_PT)
-                continue
+    def _remove_extra_recommendation_greetings(self, document: "DocxDocument", keep_count: int) -> None:
+        greeting_pattern = re.compile(r"^_+.+_+\s*貴賓您好：\s*$")
+        greetings = [
+            paragraph
+            for paragraph in list(getattr(document, "paragraphs", []))
+            if greeting_pattern.match(getattr(paragraph, "text", "").strip())
+        ]
+        for paragraph in greetings[keep_count:]:
             self._remove_paragraph(document, paragraph)
 
     @staticmethod
@@ -647,7 +618,6 @@ class WordReportConverter:
         high_text = "、".join(high_features) if high_features else "綜合能力"
         high_count_text = str(len(high_features)) if high_features else "多"
         return [
-            ("", None),
             (
                 "感謝您接受心理潛能細胞解碼檢測，由檢測結果得知，"
                 f"您在此次的分析項目中，{high_text}等共{high_count_text}項優勢評估分數較高，"
@@ -655,6 +625,16 @@ class WordReportConverter:
                 None,
             ),
         ]
+
+    @staticmethod
+    def _build_low_score_intro(low_features: list[str]) -> str:
+        low_text = "、".join(low_features) if low_features else "綜合能力"
+        low_count_text = str(len(low_features)) if low_features else "多"
+        return (
+            "感謝您接受心理潛能細胞解碼檢測，由檢測結果得知，"
+            f"您在此次的分析項目中，{low_text}等共{low_count_text}項優勢評估分數較低，"
+            "在此，也提供給您改善及建議方針："
+        )
 
     @classmethod
     def _style_paragraph_text(cls, paragraph: Any, font_size_pt: int | None = None) -> None:
