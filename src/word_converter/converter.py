@@ -937,21 +937,20 @@ class WordReportConverter:
         return False
 
     def _apply_first_page_logos(self, document: "DocxDocument", input_dir: Path) -> None:
-        sections = list(getattr(document, "sections", []))
-        if not sections:
-            return
-
         left_logo = self._resolve_logo_path(self.LEFT_LOGO_BASENAME, input_dir)
         right_logo = self._resolve_logo_path(self.RIGHT_LOGO_BASENAME, input_dir)
         if left_logo is None or right_logo is None:
-            return
+            missing = []
+            if left_logo is None:
+                missing.append(self.LEFT_LOGO_BASENAME)
+            if right_logo is None:
+                missing.append(self.RIGHT_LOGO_BASENAME)
+            raise FileNotFoundError(f"找不到 logo 圖檔：{', '.join(missing)}")
 
-        first_section = sections[0]
-        first_section.different_first_page_header_footer = True
-        header = first_section.first_page_header
-        self._remove_header_drawings(header)
-
-        paragraph = header.paragraphs[0] if header.paragraphs else header.add_paragraph("")
+        paragraph = self._find_first_body_logo_paragraph(document)
+        if paragraph is None:
+            raise ValueError("找不到正文第一個含圖片（w:drawing 或 w:pict）的段落，無法替換 logo。")
+        self._remove_paragraph_drawings(paragraph)
         paragraph.text = ""
 
         left_run = paragraph.add_run()
@@ -989,15 +988,23 @@ class WordReportConverter:
         return None
 
     @staticmethod
-    def _remove_header_drawings(header: Any) -> None:
-        for paragraph in getattr(header, "paragraphs", []):
+    def _find_first_body_logo_paragraph(document: "DocxDocument") -> Any | None:
+        for paragraph in getattr(document, "paragraphs", []):
             if not hasattr(paragraph, "_p"):
                 continue
-            p_elem = paragraph._p
-            for node in p_elem.xpath(".//w:drawing | .//w:pict"):
-                parent = node.getparent()
-                if parent is not None:
-                    parent.remove(node)
+            if paragraph._p.xpath(".//w:drawing | .//w:pict"):
+                return paragraph
+        return None
+
+    @staticmethod
+    def _remove_paragraph_drawings(paragraph: Any) -> None:
+        if not hasattr(paragraph, "_p"):
+            return
+        p_elem = paragraph._p
+        for node in p_elem.xpath(".//w:drawing | .//w:pict"):
+            parent = node.getparent()
+            if parent is not None:
+                parent.remove(node)
 
     @staticmethod
     def _add_inline_picture(run: Any, image_path: Path, width_cm: float, height_cm: float) -> Any:

@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import pytest
+
 from src.word_converter.converter import WordReportConverter
 
 
@@ -697,11 +699,20 @@ def test_replace_recommendation_section_keeps_two_greetings_high_then_low_and_pa
 
 
 def test_convert_real_sample_docx_does_not_crash_and_keeps_two_greetings(tmp_path) -> None:
+    import base64
+    import shutil
     import re
     from docx import Document
 
     converter = WordReportConverter()
-    sample = Path("src/word_converter/samples/input/APT-01-009297.docx")
+    sample_src = Path("src/word_converter/samples/input/APT-01-009297.docx")
+    sample = tmp_path / sample_src.name
+    shutil.copy(sample_src, sample)
+    tiny_png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Z0r8AAAAASUVORK5CYII="
+    )
+    (tmp_path / "威力logo總表.png").write_bytes(tiny_png)
+    (tmp_path / "心理logo總表.png").write_bytes(tiny_png)
 
     result = converter.convert(sample, tmp_path)
 
@@ -711,6 +722,24 @@ def test_convert_real_sample_docx_does_not_crash_and_keeps_two_greetings(tmp_pat
     greeting_pattern = re.compile(r"^_+.+_+\s*貴賓您好：\s*$")
     greetings = [p.text.strip() for p in output_doc.paragraphs if greeting_pattern.match(p.text.strip())]
     assert len(greetings) == 2
+
+
+def test_apply_first_page_logos_raises_when_no_body_image_paragraph(tmp_path) -> None:
+    import base64
+    from docx import Document
+
+    converter = WordReportConverter()
+    tiny_png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Z0r8AAAAASUVORK5CYII="
+    )
+    (tmp_path / "威力logo總表.png").write_bytes(tiny_png)
+    (tmp_path / "心理logo總表.png").write_bytes(tiny_png)
+
+    doc = Document()
+    doc.add_paragraph("這份文件沒有圖片段落")
+
+    with pytest.raises(ValueError, match="找不到正文第一個含圖片"):
+        converter._apply_first_page_logos(doc, tmp_path)
 
 
 def test_convert_inline_to_floating_anchor_works_without_cnvgraphicframepr_attribute() -> None:
