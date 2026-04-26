@@ -254,6 +254,7 @@ class WordReportConverter:
         return replaced
 
     def _replace_recommendation_section(self, document: "DocxDocument", name: str) -> None:
+        self._remove_existing_recommendation_greetings(document)
         paragraphs = list(getattr(document, "paragraphs", []))
         anchor_index = self._find_disclaimer_anchor_index(paragraphs)
         if anchor_index is None:
@@ -282,6 +283,23 @@ class WordReportConverter:
 
         if low_anchor is None:
             self._append_page_break(document)
+
+    def _remove_existing_recommendation_greetings(self, document: "DocxDocument") -> None:
+        paragraphs = getattr(document, "paragraphs", [])
+        greeting_pattern = re.compile(r"^_+.+_+\s*貴賓您好：\s*$")
+
+        if isinstance(paragraphs, list):
+            retained = [paragraph for paragraph in paragraphs if not greeting_pattern.match(getattr(paragraph, "text", "").strip())]
+            paragraphs[:] = retained
+            return
+
+        for paragraph in list(paragraphs):
+            text = getattr(paragraph, "text", "").strip()
+            if not greeting_pattern.match(text):
+                continue
+            p = paragraph._element
+            p.getparent().remove(p)
+            p._p = p._element = None
 
     def _remove_existing_high_block_between_disclaimer_and_low_anchor(
         self,

@@ -331,6 +331,40 @@ def test_replace_recommendation_section_inserts_greeting_before_legacy_low_score
     assert greeting_idx < low_idx
 
 
+def test_replace_recommendation_section_keeps_exactly_two_section_level_greetings() -> None:
+    converter = WordReportConverter()
+    main_table = _build_main_table()
+    main_table.rows[1].cells[1].text = "高特質"
+    main_table.rows[1].cells[4].text = "高"
+    main_table.rows[2].cells[1].text = "低特質"
+    main_table.rows[2].cells[4].text = "低"
+    high_intro = "感謝您接受心理潛能細胞解碼檢測，由檢測結果得知，您在此次的分析項目中，高特質等共1項優勢評估分數較高，在此，也提供給您改善及建議方針："
+    low_intro = "感謝您接受心理潛能細胞解碼檢測，由檢測結果得知，您在此次的分析項目中，低特質等共1項優勢評估分數較低，在此，也提供給您改善及建議方針："
+    doc = FakeDocument(
+        paragraphs=[
+            FakeParagraph("_____張西西_____ 貴賓您好："),  # front isolated (should be removed)
+            FakeParagraph("本報告所提供之心理天賦優勢分析"),
+            FakeParagraph("_____張西西_____ 貴賓您好："),  # duplicated inside recommendation block
+            FakeParagraph(high_intro),
+            FakeParagraph("_____張西西_____ 貴賓您好："),  # duplicated before items
+            FakeParagraph(low_intro),
+        ],
+        tables=[main_table],
+    )
+
+    converter._replace_recommendation_section(doc, "張西西")
+
+    texts = [p.text for p in doc.paragraphs]
+    greeting = "_____張西西_____ 貴賓您好："
+    greeting_indexes = [idx for idx, text in enumerate(texts) if text == greeting]
+    assert len(greeting_indexes) == 2
+
+    high_intro_index = next(idx for idx, text in enumerate(texts) if "優勢評估分數較高" in text)
+    low_intro_index = next(idx for idx, text in enumerate(texts) if "優勢評估分數較低" in text)
+    assert greeting_indexes[0] < high_intro_index
+    assert greeting_indexes[1] < low_intro_index
+
+
 def test_apply_fixed_text_replaces_long_declaration_text() -> None:
     converter = WordReportConverter()
     old_text = (
