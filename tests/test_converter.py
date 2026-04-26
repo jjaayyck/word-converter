@@ -724,6 +724,41 @@ def test_convert_real_sample_docx_does_not_crash_and_keeps_two_greetings(tmp_pat
     assert len(greetings) == 2
 
 
+def test_apply_first_page_logos_inserts_two_body_images_with_valid_image_relationships(tmp_path) -> None:
+    import base64
+    import shutil
+    from docx import Document
+    from docx.oxml.ns import qn
+
+    converter = WordReportConverter()
+    sample_src = Path("src/word_converter/samples/input/APT-01-009297.docx")
+    sample = tmp_path / sample_src.name
+    shutil.copy(sample_src, sample)
+    left_png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Z0r8AAAAASUVORK5CYII="
+    )
+    right_png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAwMBAS5FYx8AAAAASUVORK5CYII="
+    )
+    (tmp_path / "威力logo總表.png").write_bytes(left_png)
+    (tmp_path / "心理logo總表.png").write_bytes(right_png)
+
+    result = converter.convert(sample, tmp_path)
+    output_doc = Document(str(result.output_path))
+
+    logo_paragraph = converter._find_first_body_logo_paragraph(output_doc)
+    assert logo_paragraph is not None
+
+    blips = logo_paragraph._p.xpath(".//a:blip")
+    assert len(blips) == 2
+    embed_ids = [blip.get(qn("r:embed")) for blip in blips]
+    assert all(embed_ids)
+    assert len(set(embed_ids)) == 2
+    for rel_id in embed_ids:
+        rel = output_doc.part.rels[rel_id]
+        assert "image" in rel.reltype
+
+
 def test_apply_first_page_logos_raises_when_no_body_image_paragraph(tmp_path) -> None:
     import base64
     from docx import Document

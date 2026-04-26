@@ -961,14 +961,16 @@ class WordReportConverter:
 
         right_run = paragraph.add_run()
         inline_shape = self._add_inline_picture(right_run, right_logo, width_cm=10.24, height_cm=2.79)
-        self._convert_inline_to_floating_anchor(
+        anchor = self._convert_inline_to_floating_anchor(
             inline_shape,
             x_cm=8.76,
             y_cm=0,
-            horizontal_relative="rightMargin",
+            horizontal_relative="page",
             vertical_relative="paragraph",
-            behind_text=True,
+            behind_text=False,
         )
+        if anchor is None:
+            raise RuntimeError("右側 logo 轉換為 floating anchor 失敗。")
 
     @staticmethod
     def _resolve_logo_path(basename: str, input_dir: Path) -> Path | None:
@@ -1010,7 +1012,10 @@ class WordReportConverter:
     def _add_inline_picture(run: Any, image_path: Path, width_cm: float, height_cm: float) -> Any:
         from docx.shared import Cm
 
-        return run.add_picture(str(image_path), width=Cm(width_cm), height=Cm(height_cm))
+        picture = run.add_picture(str(image_path), width=Cm(width_cm), height=Cm(height_cm))
+        if picture is None:
+            raise RuntimeError(f"插入圖片失敗：{image_path}")
+        return picture
 
     @staticmethod
     def _convert_inline_to_floating_anchor(
@@ -1020,7 +1025,7 @@ class WordReportConverter:
         horizontal_relative: str,
         vertical_relative: str,
         behind_text: bool,
-    ) -> None:
+    ) -> Any:
         from copy import deepcopy
 
         from docx.oxml import OxmlElement
@@ -1093,6 +1098,7 @@ class WordReportConverter:
         anchor.append(deepcopy(graphic))
 
         inline.getparent().replace(inline, anchor)
+        return anchor
 
     def _apply_page_layout(self, document: "DocxDocument") -> None:
         sections = list(getattr(document, "sections", []))
