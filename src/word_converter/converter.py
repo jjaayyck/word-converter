@@ -49,6 +49,7 @@ class WordReportConverter:
     DISCLAIMER_FONT_SIZE_PT = 10
     LEFT_LOGO_BASENAME = "威力logo總表"
     RIGHT_LOGO_BASENAME = "心理logo總表"
+    RECOMMENDATION_LOGO_BASENAME = "建議logo"
 
     LEGACY_MAIN_HEADERS = ["編號", "功能", "細胞解碼位點", "解碼型", "健康優勢評估", "健康優勢評分"]
     NEW_MAIN_HEADERS = ["編號", "心理天賦項目", "細胞解碼位點", "解碼型", "心理潛能優勢評估", "心理潛能優勢評分"]
@@ -81,7 +82,7 @@ class WordReportConverter:
         self._convert_table_headers(document)
         self._convert_cell_codes(document)
         self._apply_fixed_text(document)
-        self._replace_recommendation_section(document, name)
+        self._replace_recommendation_section(document, name, input_file.parent)
         self._highlight_score_emphasis_text(document)
         self._apply_recommendation_format_overrides(document)
         self._apply_table_styles(document)
@@ -260,7 +261,12 @@ class WordReportConverter:
             replaced = replaced.replace(old, new)
         return replaced
 
-    def _replace_recommendation_section(self, document: "DocxDocument", name: str) -> None:
+    def _replace_recommendation_section(
+        self,
+        document: "DocxDocument",
+        name: str,
+        input_dir: Path | None = None,
+    ) -> None:
         paragraphs = list(getattr(document, "paragraphs", []))
         anchor_index = self._find_disclaimer_anchor_index(paragraphs)
         if anchor_index is None:
@@ -300,7 +306,8 @@ class WordReportConverter:
             if blank_after_high_intro is not None:
                 self._set_paragraph_spacing_pt(blank_after_high_intro, self.HIGH_SCORE_INTRO_BLANK_LINE_SPACING_PT)
 
-        self._insert_high_score_tables_before_anchor(document, high_features, low_anchor)
+        recommendation_logo = self._resolve_logo_path(self.RECOMMENDATION_LOGO_BASENAME, input_dir) if input_dir else None
+        self._insert_high_score_tables_before_anchor(document, high_features, low_anchor, recommendation_logo)
         self._insert_paragraph_before_anchor(
             document,
             low_anchor,
@@ -510,6 +517,7 @@ class WordReportConverter:
         document: "DocxDocument",
         high_features: list[str],
         anchor_paragraph: Any | None,
+        recommendation_logo: Path | None = None,
     ) -> None:
         if not hasattr(document, "add_table"):
             self._insert_page_break_before_anchor(document, anchor_paragraph)
@@ -549,12 +557,34 @@ class WordReportConverter:
                 size_eighths=self.RECOMMEND_BORDER_SIZE_EIGHTHS,
             )
             self._set_row_height_cm(suggestion_table.rows[0], 7)
+            self._add_recommendation_logo_to_high_score_table(suggestion_cell, recommendation_logo)
 
             if index < len(feature_items) - 1:
                 between = self._insert_or_append_spacer_paragraph(document, anchor_paragraph)
                 self._set_paragraph_spacing_pt(between, line_spacing_pt=19)
             else:
                 self._insert_page_break_before_anchor(document, anchor_paragraph)
+
+    def _add_recommendation_logo_to_high_score_table(self, suggestion_cell: Any, recommendation_logo: Path | None) -> None:
+        if recommendation_logo is None or not recommendation_logo.exists():
+            return
+        paragraphs = getattr(suggestion_cell, "paragraphs", [])
+        if not paragraphs:
+            return
+        paragraph = paragraphs[0]
+        if not hasattr(paragraph, "add_run"):
+            return
+
+        run = paragraph.add_run()
+        inline_shape = self._add_inline_picture(run, recommendation_logo, width_cm=18.84, height_cm=4.92)
+        self._convert_inline_to_floating_anchor(
+            inline_shape,
+            x_cm=0,
+            y_cm=-4.23,
+            horizontal_relative="column",
+            vertical_relative="paragraph",
+            behind_text=True,
+        )
 
     def _build_high_score_suggestion_text(self, feature: str) -> str:
         feature_key = feature.strip()
