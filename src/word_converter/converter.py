@@ -309,6 +309,14 @@ class WordReportConverter:
 
         recommendation_logo = self._resolve_logo_path(self.RECOMMENDATION_LOGO_BASENAME, input_dir) if input_dir else None
         self._insert_high_score_tables_before_anchor(document, high_features, low_anchor, recommendation_logo)
+        rebuilt_low_anchor = self._insert_low_score_recommendations_before_anchor(
+            document,
+            low_anchor,
+            low_features,
+            recommendation_logo,
+        )
+        if rebuilt_low_anchor is not None:
+            low_anchor = rebuilt_low_anchor
         self._insert_paragraph_before_anchor(
             document,
             low_anchor,
@@ -592,6 +600,152 @@ class WordReportConverter:
             vertical_relative="paragraph",
             behind_text=True,
         )
+
+    def _insert_low_score_recommendations_before_anchor(
+        self,
+        document: "DocxDocument",
+        low_anchor: Any | None,
+        low_features: list[str],
+        recommendation_logo: Path | None,
+    ) -> Any | None:
+        if low_anchor is None or not hasattr(low_anchor, "_p"):
+            return low_anchor
+        low_anchor_text = getattr(low_anchor, "text", "")
+        if "優勢評估分數較低" not in low_anchor_text and "健康優勢評估分數較低" not in low_anchor_text:
+            return low_anchor
+
+        low_section_blocks, insertion_anchor, low_suggestion_mapping = self._collect_low_section_blocks_and_suggestions(
+            low_anchor,
+            low_features,
+        )
+        if not low_section_blocks:
+            return low_anchor
+
+        for block in low_section_blocks:
+            parent = block.getparent()
+            if parent is not None:
+                parent.remove(block)
+
+        new_low_intro = self._insert_paragraph_before_block(
+            document,
+            insertion_anchor,
+            self._build_low_score_intro(low_features),
+        )
+
+        feature_items = low_features or ["綜合能力"]
+        for index, feature in enumerate(feature_items):
+            if index % self.HIGH_SCORE_ITEMS_PER_PAGE == 0:
+                logo_paragraph = self._insert_paragraph_before_block(document, insertion_anchor, "")
+                if logo_paragraph is not None:
+                    self._add_recommendation_logo_to_paragraph(logo_paragraph, recommendation_logo)
+
+            header_table = self._insert_table_before_block(document, insertion_anchor)
+            if header_table is not None:
+                header_cell = header_table.rows[0].cells[0]
+                self._replace_cell_text(header_cell, feature)
+                self._set_cell_fill(header_cell, self.HEADER_FILL_COLOR)
+                self._style_cell_text(header_cell, bold=True, font_color=self.HEADER_FONT_COLOR, font_size_pt=18)
+                self._set_table_border(
+                    header_table,
+                    color=self.DARK_BORDER_COLOR,
+                    size_eighths=self.HEADER_BORDER_SIZE_EIGHTHS,
+                )
+                self._set_row_height_pt(header_table.rows[0], 20)
+                self._set_cell_paragraph_line_spacing_pt(header_cell, 20)
+
+            spacer = self._insert_paragraph_before_block(document, insertion_anchor, "")
+            if spacer is not None:
+                self._set_paragraph_spacing_pt(spacer, line_spacing_pt=6)
+
+            suggestion_table = self._insert_table_before_block(document, insertion_anchor)
+            if suggestion_table is not None:
+                suggestion_cell = suggestion_table.rows[0].cells[0]
+                self._replace_cell_text(
+                    suggestion_cell,
+                    low_suggestion_mapping.get(feature, ""),
+                )
+                self._style_cell_text(suggestion_cell)
+                self._set_cell_paragraph_line_spacing_pt(suggestion_cell, 20)
+                self._set_table_border(
+                    suggestion_table,
+                    color=self.RECOMMEND_BORDER_COLOR,
+                    size_eighths=self.RECOMMEND_BORDER_SIZE_EIGHTHS,
+                )
+                self._set_row_height_cm(suggestion_table.rows[0], 7)
+
+            if index < len(feature_items) - 1:
+                if (index + 1) % self.HIGH_SCORE_ITEMS_PER_PAGE == 0:
+                    page_break_paragraph = self._insert_paragraph_before_block(document, insertion_anchor, "")
+                    if page_break_paragraph is not None and hasattr(page_break_paragraph, "add_run"):
+                        run = page_break_paragraph.add_run()
+                        try:
+                            from docx.enum.text import WD_BREAK
+
+                            run.add_break(WD_BREAK.PAGE)
+                        except Exception:
+                            run.add_break()
+                else:
+                    between = self._insert_paragraph_before_block(document, insertion_anchor, "")
+                    if between is not None:
+                        self._set_paragraph_spacing_pt(between, line_spacing_pt=19)
+
+        return new_low_intro
+
+    def _collect_low_section_blocks_and_suggestions(
+        self,
+        low_anchor: Any,
+        low_features: list[str],
+    ) -> tuple[list[Any], Any | None, dict[str, str]]:
+        normalized_features = [feature.strip() for feature in low_features if feature.strip()]
+        if not normalized_features:
+            return [low_anchor._p], low_anchor._p.getnext(), {}
+
+        blocks: list[Any] = []
+        mapping: dict[str, str] = {}
+        current = low_anchor._p
+        feature_index = 0
+        waiting_suggestion = False
+        end_block = low_anchor._p
+
+        while current is not None:
+            blocks.append(current)
+            tag_name = getattr(current, "tag", "")
+            if tag_name.endswith("}tbl") and feature_index < len(normalized_features):
+                table_text = "".join(current.itertext()).strip()
+                feature_name = normalized_features[feature_index]
+                if not waiting_suggestion and feature_name in table_text:
+                    waiting_suggestion = True
+                elif waiting_suggestion:
+                    mapping[feature_name] = table_text
+                    waiting_suggestion = False
+                    feature_index += 1
+                    if feature_index >= len(normalized_features):
+                        end_block = current
+                        break
+            current = current.getnext()
+
+        if feature_index < len(normalized_features):
+            return [low_anchor._p], low_anchor._p.getnext(), mapping
+
+        return blocks, end_block.getnext(), mapping
+
+    @staticmethod
+    def _insert_paragraph_before_block(document: "DocxDocument", anchor_block: Any | None, text: str) -> Any | None:
+        if not hasattr(document, "add_paragraph"):
+            return None
+        paragraph = document.add_paragraph(text)
+        if anchor_block is not None and hasattr(paragraph, "_p"):
+            anchor_block.addprevious(paragraph._p)
+        return paragraph
+
+    @staticmethod
+    def _insert_table_before_block(document: "DocxDocument", anchor_block: Any | None) -> Any | None:
+        if not hasattr(document, "add_table"):
+            return None
+        table = document.add_table(rows=1, cols=1)
+        if anchor_block is not None and hasattr(table, "_tbl"):
+            anchor_block.addprevious(table._tbl)
+        return table
 
     def _build_high_score_suggestion_text(self, feature: str) -> str:
         feature_key = feature.strip()

@@ -762,7 +762,7 @@ def test_apply_first_page_logos_inserts_two_body_images_with_valid_image_relatio
         assert "image" in rel.reltype
 
 
-def test_convert_adds_recommendation_logo_once_per_high_score_page(tmp_path) -> None:
+def test_convert_adds_recommendation_logo_once_per_recommendation_page(tmp_path) -> None:
     import base64
     import shutil
     from docx import Document
@@ -788,17 +788,84 @@ def test_convert_adds_recommendation_logo_once_per_high_score_page(tmp_path) -> 
                 high_count += 1
         if high_count:
             break
-    expected_page_count = (high_count + converter.HIGH_SCORE_ITEMS_PER_PAGE - 1) // converter.HIGH_SCORE_ITEMS_PER_PAGE
-
-    logo_anchors = output_doc.element.xpath(
-        ".//wp:anchor[@behindDoc='1'][wp:positionH[@relativeFrom='column']/wp:posOffset='0']"
-        "[wp:positionV[@relativeFrom='paragraph']/wp:posOffset='-1522800']"
-    )
-    assert len(logo_anchors) == expected_page_count
+    high_page_count = (high_count + converter.HIGH_SCORE_ITEMS_PER_PAGE - 1) // converter.HIGH_SCORE_ITEMS_PER_PAGE
 
     low_intro_paragraph = next(p for p in output_doc.paragraphs if "優勢評估分數較低，在此，也提供給您改善及建議方針：" in p.text)
-    assert not low_intro_paragraph._p.xpath(
-        ".//wp:anchor[@behindDoc='1'][wp:positionV[@relativeFrom='paragraph']/wp:posOffset='-1522800']"
+    paragraphs = list(output_doc.paragraphs)
+    low_intro_index = next(idx for idx, paragraph in enumerate(paragraphs) if paragraph._p is low_intro_paragraph._p)
+    logo_count_before_low_intro = sum(
+        1
+        for paragraph in paragraphs[:low_intro_index]
+        if paragraph._p.xpath(
+            ".//wp:anchor[@behindDoc='1'][wp:positionH[@relativeFrom='column']/wp:posOffset='0']"
+            "[wp:positionV[@relativeFrom='paragraph']/wp:posOffset='-1522800']"
+        )
+    )
+    total_logo_count = sum(
+        1
+        for paragraph in paragraphs
+        if paragraph._p.xpath(
+            ".//wp:anchor[@behindDoc='1'][wp:positionH[@relativeFrom='column']/wp:posOffset='0']"
+            "[wp:positionV[@relativeFrom='paragraph']/wp:posOffset='-1522800']"
+        )
+    )
+
+    assert logo_count_before_low_intro >= high_page_count
+    assert total_logo_count >= high_page_count + 1
+
+    assert not low_intro_paragraph._p.xpath(".//w:pict | .//wp:inline")
+
+
+def test_insert_low_score_recommendations_rebuilds_section_and_keeps_following_images(tmp_path) -> None:
+    import base64
+    from docx import Document
+
+    converter = WordReportConverter()
+    tiny_png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Z0r8AAAAASUVORK5CYII="
+    )
+    logo_path = tmp_path / "建議logo.png"
+    logo_path.write_bytes(tiny_png)
+    old_image_path = tmp_path / "old.png"
+    old_image_path.write_bytes(tiny_png)
+
+    doc = Document()
+    low_intro = doc.add_paragraph(
+        "感謝您接受心理潛能細胞解碼檢測，由檢測結果得知，您在此次的分析項目中，"
+        "想像力、挑戰力等共2項優勢評估分數較低，在此，也提供給您改善及建議方針："
+    )
+    low_old_image_paragraph = doc.add_paragraph("")
+    low_old_image_paragraph.add_run().add_picture(str(old_image_path))
+    feature_a_table = doc.add_table(rows=1, cols=1)
+    feature_a_table.rows[0].cells[0].text = "想像力"
+    suggestion_a_table = doc.add_table(rows=1, cols=1)
+    suggestion_a_table.rows[0].cells[0].text = "想像力原始建議內容"
+    feature_b_table = doc.add_table(rows=1, cols=1)
+    feature_b_table.rows[0].cells[0].text = "挑戰力"
+    suggestion_b_table = doc.add_table(rows=1, cols=1)
+    suggestion_b_table.rows[0].cells[0].text = "挑戰力原始建議內容"
+    after_low_image_paragraph = doc.add_paragraph("")
+    after_low_image_paragraph.add_run().add_picture(str(old_image_path))
+
+    converter._insert_low_score_recommendations_before_anchor(
+        doc,
+        low_intro,
+        ["想像力", "挑戰力"],
+        logo_path,
+    )
+
+    all_inline_drawings = doc.element.xpath(".//wp:inline")
+    assert len(all_inline_drawings) == 1
+    assert after_low_image_paragraph._p.xpath(".//w:drawing | .//w:pict")
+    all_table_text = [cell.text for table in doc.tables for row in table.rows for cell in row.cells]
+    assert any("想像力原始建議內容" in text for text in all_table_text)
+    assert any("挑戰力原始建議內容" in text for text in all_table_text)
+    assert any(
+        paragraph._p.xpath(
+            ".//wp:anchor[@behindDoc='1'][wp:positionH[@relativeFrom='column']/wp:posOffset='0']"
+            "[wp:positionV[@relativeFrom='paragraph']/wp:posOffset='-1522800']"
+        )
+        for paragraph in doc.paragraphs
     )
 
 
