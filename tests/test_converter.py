@@ -626,7 +626,7 @@ def test_apply_recommendation_format_overrides_sets_disclaimer_font_size_to_10pt
     assert all(run.font.size == Pt(10) for run in paragraph.runs)
 
 
-def test_apply_recommendation_format_overrides_adds_trailing_blank_line_with_19pt_after_intro() -> None:
+def test_apply_recommendation_format_overrides_adds_trailing_blank_line_with_19pt_after_high_intro_only() -> None:
     from docx import Document
     from docx.shared import Pt
 
@@ -652,9 +652,8 @@ def test_apply_recommendation_format_overrides_adds_trailing_blank_line_with_19p
     low_idx = texts.index(low_intro)
 
     assert texts[high_idx + 1] == ""
-    assert texts[low_idx + 1] == ""
     assert doc.paragraphs[high_idx + 1].paragraph_format.line_spacing == Pt(19)
-    assert doc.paragraphs[low_idx + 1].paragraph_format.line_spacing == Pt(19)
+    assert texts[low_idx + 1] == "低分後內容"
 
 
 def test_replace_recommendation_section_keeps_two_greetings_high_then_low_and_page_break() -> None:

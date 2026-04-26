@@ -621,7 +621,8 @@ class WordReportConverter:
             text = getattr(paragraph, "text", "")
             if self._is_recommendation_intro_paragraph(text):
                 self._set_paragraph_spacing_pt(paragraph, self.RECOMMENDATION_INTRO_LINE_SPACING_PT)
-                intro_paragraphs.append(paragraph)
+                if self._needs_trailing_blank_line(text):
+                    intro_paragraphs.append(paragraph)
             if self._is_disclaimer_paragraph(text):
                 self._style_paragraph_text(paragraph, font_size_pt=self.DISCLAIMER_FONT_SIZE_PT)
 
@@ -638,6 +639,10 @@ class WordReportConverter:
     @staticmethod
     def _is_disclaimer_paragraph(text: str) -> bool:
         return "本報告所提供之心理天賦優勢分析" in text
+
+    @staticmethod
+    def _needs_trailing_blank_line(text: str) -> bool:
+        return "優勢評估分數較高，在此，也提供給您改善及建議方針：" in text
 
     def _ensure_intro_trailing_blank_line(self, document: "DocxDocument", paragraph: Any) -> None:
         paragraphs = list(getattr(document, "paragraphs", []))
