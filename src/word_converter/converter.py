@@ -965,9 +965,9 @@ class WordReportConverter:
             inline_shape,
             x_cm=8.76,
             y_cm=0,
-            horizontal_relative="page",
+            horizontal_relative="rightMargin",
             vertical_relative="paragraph",
-            behind_text=False,
+            behind_text=True,
         )
         if anchor is None:
             raise RuntimeError("右側 logo 轉換為 floating anchor 失敗。")

@@ -811,5 +811,10 @@ def test_convert_inline_to_floating_anchor_works_without_cnvgraphicframepr_attri
         behind_text=True,
     )
 
-    assert drawing[0].tag.endswith("anchor")
-    assert drawing[0].find("{http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing}cNvGraphicFramePr") is not None
+    anchor = drawing[0]
+    assert anchor.tag.endswith("anchor")
+    assert anchor.get("behindDoc") == "1"
+    position_h = anchor.find("{http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing}positionH")
+    assert position_h is not None
+    assert position_h.get("relativeFrom") == "rightMargin"
+    assert anchor.find("{http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing}cNvGraphicFramePr") is not None
