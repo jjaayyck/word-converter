@@ -1017,13 +1017,23 @@ class WordReportConverter:
         from copy import deepcopy
 
         from docx.oxml import OxmlElement
+        from docx.oxml.ns import qn
         from docx.shared import Cm
 
         inline = inline_shape._inline
-        graphic = deepcopy(inline.graphic)
-        extent = inline.extent
-        doc_pr = inline.docPr
-        c_nv_graphic_frame_pr = inline.cNvGraphicFramePr
+        graphic = inline.find(qn("a:graphic"))
+        extent = inline.find(qn("wp:extent"))
+        doc_pr = inline.find(qn("wp:docPr"))
+        c_nv_graphic_frame_pr = inline.find(qn("wp:cNvGraphicFramePr"))
+
+        if graphic is None or extent is None:
+            raise ValueError("inline 圖片 XML 缺少必要節點：a:graphic / wp:extent")
+        if doc_pr is None:
+            doc_pr = OxmlElement("wp:docPr")
+            doc_pr.set("id", "1")
+            doc_pr.set("name", "Picture 1")
+        if c_nv_graphic_frame_pr is None:
+            c_nv_graphic_frame_pr = OxmlElement("wp:cNvGraphicFramePr")
 
         anchor = OxmlElement("wp:anchor")
         anchor.set("simplePos", "0")
@@ -1057,8 +1067,8 @@ class WordReportConverter:
         anchor.append(position_v)
 
         extent_elem = OxmlElement("wp:extent")
-        extent_elem.set("cx", str(extent.cx))
-        extent_elem.set("cy", str(extent.cy))
+        extent_elem.set("cx", extent.get("cx", "0"))
+        extent_elem.set("cy", extent.get("cy", "0"))
         anchor.append(extent_elem)
 
         effect_extent = OxmlElement("wp:effectExtent")
@@ -1073,7 +1083,7 @@ class WordReportConverter:
 
         anchor.append(deepcopy(doc_pr))
         anchor.append(deepcopy(c_nv_graphic_frame_pr))
-        anchor.append(graphic)
+        anchor.append(deepcopy(graphic))
 
         inline.getparent().replace(inline, anchor)
 

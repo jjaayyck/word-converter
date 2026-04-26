@@ -711,3 +711,41 @@ def test_convert_real_sample_docx_does_not_crash_and_keeps_two_greetings(tmp_pat
     greeting_pattern = re.compile(r"^_+.+_+\s*貴賓您好：\s*$")
     greetings = [p.text.strip() for p in output_doc.paragraphs if greeting_pattern.match(p.text.strip())]
     assert len(greetings) == 2
+
+
+def test_convert_inline_to_floating_anchor_works_without_cnvgraphicframepr_attribute() -> None:
+    from types import SimpleNamespace
+
+    from docx.oxml import parse_xml
+    from docx.oxml.ns import nsdecls
+
+    converter = WordReportConverter()
+    drawing = parse_xml(
+        f"""
+        <w:drawing {nsdecls('w', 'wp', 'a', 'pic', 'r')}>
+          <wp:inline>
+            <wp:extent cx="3685039" cy="1004563"/>
+            <wp:docPr id="1" name="Picture 1"/>
+            <a:graphic>
+              <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                <pic:pic/>
+              </a:graphicData>
+            </a:graphic>
+          </wp:inline>
+        </w:drawing>
+        """
+    )
+    inline = drawing[0]
+    inline_shape = SimpleNamespace(_inline=inline)
+
+    converter._convert_inline_to_floating_anchor(
+        inline_shape,
+        x_cm=8.76,
+        y_cm=0,
+        horizontal_relative="rightMargin",
+        vertical_relative="paragraph",
+        behind_text=True,
+    )
+
+    assert drawing[0].tag.endswith("anchor")
+    assert drawing[0].find("{http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing}cNvGraphicFramePr") is not None
