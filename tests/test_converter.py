@@ -304,6 +304,33 @@ def test_replace_recommendation_section_inserts_greeting_before_low_score_sectio
     assert greeting_indices[-1] < low_index
 
 
+def test_replace_recommendation_section_inserts_greeting_before_legacy_low_score_paragraph() -> None:
+    converter = WordReportConverter()
+    main_table = _build_main_table()
+    main_table.rows[1].cells[4].text = "高"
+    main_table.rows[2].cells[4].text = "低"
+    legacy_low_intro = (
+        "感謝您接受健康趨勢細胞解碼檢測，由檢測結果得知，您在此次的分析項目中，"
+        "學習能力、想像力、空間感、肌耐力、優質睡眠、挫折耐受力、危機處理力、膽量、挑戰力等共九項健康優勢評估分數較低，"
+        "在此，也提供給您改善及建議方針："
+    )
+    doc = FakeDocument(
+        paragraphs=[
+            FakeParagraph("本報告所提供之心理天賦優勢分析"),
+            FakeParagraph("想像力"),
+            FakeParagraph(legacy_low_intro),
+        ],
+        tables=[main_table],
+    )
+
+    converter._replace_recommendation_section(doc, "張西西")
+
+    texts = [p.text for p in doc.paragraphs]
+    low_idx = texts.index(legacy_low_intro)
+    greeting_idx = max(i for i, text in enumerate(texts) if text == "_____張西西_____ 貴賓您好：")
+    assert greeting_idx < low_idx
+
+
 def test_apply_fixed_text_replaces_long_declaration_text() -> None:
     converter = WordReportConverter()
     old_text = (

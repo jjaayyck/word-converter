@@ -341,12 +341,20 @@ class WordReportConverter:
         return high_features, low_features
 
     def _find_low_score_anchor_paragraph(self, document: "DocxDocument", low_features: list[str]) -> Any | None:
-        tokens = ["感謝您接受健康趨勢細胞解碼檢測", "感謝您接受心理潛能細胞解碼檢測", "想像力"]
-        tokens.extend(feature for feature in low_features if feature)
-
+        anchor_tokens = (
+            "優勢評估分數較低，在此，也提供給您改善及建議方針：",
+            "健康優勢評估分數較低，在此，也提供給您改善及建議方針：",
+        )
         for paragraph in getattr(document, "paragraphs", []):
             text = getattr(paragraph, "text", "")
-            if any(token in text for token in tokens):
+            if any(token in text for token in anchor_tokens):
+                return paragraph
+
+        # fallback: keep compatibility with documents that only contain a short intro marker
+        fallback_tokens = ["感謝您接受健康趨勢細胞解碼檢測", "感謝您接受心理潛能細胞解碼檢測"]
+        for paragraph in getattr(document, "paragraphs", []):
+            text = getattr(paragraph, "text", "")
+            if any(token in text for token in fallback_tokens):
                 return paragraph
 
         return None
