@@ -806,15 +806,15 @@ def test_convert_inline_to_floating_anchor_works_without_cnvgraphicframepr_attri
         inline_shape,
         x_cm=8.76,
         y_cm=0,
-        horizontal_relative="rightMargin",
+        horizontal_relative="page",
         vertical_relative="paragraph",
-        behind_text=True,
+        behind_text=False,
     )
 
     anchor = drawing[0]
     assert anchor.tag.endswith("anchor")
-    assert anchor.get("behindDoc") == "1"
+    assert anchor.get("behindDoc") == "0"
     position_h = anchor.find("{http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing}positionH")
     assert position_h is not None
-    assert position_h.get("relativeFrom") == "rightMargin"
+    assert position_h.get("relativeFrom") == "page"
     assert anchor.find("{http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing}cNvGraphicFramePr") is not None
