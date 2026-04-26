@@ -585,6 +585,117 @@ def test_recommendation_section_applies_summary_emphasis_and_non_placeholder_sug
     assert "◆ 建議內容可依實際需求補充。" not in all_table_text
 
 
+def test_apply_recommendation_format_overrides_sets_high_and_low_intro_line_spacing_to_16pt() -> None:
+    from docx import Document
+    from docx.shared import Pt
+
+    converter = WordReportConverter()
+    doc = Document()
+    high_intro = (
+        "感謝您接受心理潛能細胞解碼檢測，由檢測結果得知，您在此次的分析項目中，"
+        "空間感等共1項優勢評估分數較高，在此，也提供給您改善及建議方針："
+    )
+    low_intro = (
+        "感謝您接受健康趨勢細胞解碼檢測，由檢測結果得知，您在此次的分析項目中，"
+        "空間感等共1項優勢評估分數較低，在此，也提供給您改善及建議方針："
+    )
+    high_paragraph = doc.add_paragraph(high_intro)
+    low_paragraph = doc.add_paragraph(low_intro)
+
+    converter._apply_recommendation_format_overrides(doc)
+
+    assert high_paragraph.paragraph_format.line_spacing == Pt(16)
+    assert low_paragraph.paragraph_format.line_spacing == Pt(16)
+
+
+def test_apply_recommendation_format_overrides_sets_disclaimer_font_size_to_10pt() -> None:
+    from docx import Document
+    from docx.shared import Pt
+
+    converter = WordReportConverter()
+    doc = Document()
+    disclaimer = (
+        "本報告所提供之心理天賦優勢分析，係依據分子生物學資料及統計模型，推估個人心理天賦特質，"
+        "僅供潛能探索與心理管理參考。"
+    )
+    paragraph = doc.add_paragraph(disclaimer)
+
+    converter._apply_recommendation_format_overrides(doc)
+
+    assert paragraph.runs
+    assert all(run.font.size == Pt(10) for run in paragraph.runs)
+
+
+def test_replace_recommendation_section_inserts_19pt_blank_paragraph_between_high_intro_and_first_high_table() -> None:
+    from docx import Document
+    from docx.text.paragraph import Paragraph
+    from docx.shared import Pt
+
+    converter = WordReportConverter()
+    doc = Document()
+    doc.add_paragraph("本報告所提供之心理天賦優勢分析")
+    low_intro = "感謝您接受心理潛能細胞解碼檢測，由檢測結果得知，您在此次的分析項目中，低特質等共1項優勢評估分數較低，在此，也提供給您改善及建議方針："
+    doc.add_paragraph(low_intro)
+
+    table = doc.add_table(rows=3, cols=6)
+    headers = ["編號", "功能", "細胞解碼位點", "解碼型", "健康優勢評估", "健康優勢評分"]
+    for idx, header in enumerate(headers):
+        table.rows[0].cells[idx].text = header
+    table.rows[1].cells[1].text = "服從性格"
+    table.rows[1].cells[4].text = "高"
+    table.rows[2].cells[1].text = "低特質"
+    table.rows[2].cells[4].text = "低"
+
+    converter._replace_recommendation_section(doc, "王曉明")
+    converter._apply_recommendation_format_overrides(doc)
+
+    high_intro_paragraph = next(p for p in doc.paragraphs if "優勢評估分數較高，在此，也提供給您改善及建議方針：" in p.text)
+    blank_paragraph_element = high_intro_paragraph._p.getnext()
+    blank_paragraph = Paragraph(blank_paragraph_element, high_intro_paragraph._parent)
+
+    assert blank_paragraph.text == ""
+    assert blank_paragraph.paragraph_format.line_spacing == Pt(19)
+
+    first_high_table_element = blank_paragraph_element.getnext()
+    assert first_high_table_element.tag.endswith("tbl")
+    first_high_table_text = "".join(first_high_table_element.itertext())
+    assert "服從性格" in first_high_table_text
+
+
+def test_replace_recommendation_section_keeps_two_greetings_high_then_low_and_page_break() -> None:
+    converter = WordReportConverter()
+    main_table = _build_main_table()
+    main_table.rows[1].cells[1].text = "爆發力"
+    main_table.rows[1].cells[4].text = "高"
+    main_table.rows[2].cells[1].text = "低特質"
+    main_table.rows[2].cells[4].text = "低"
+    low_intro = (
+        "感謝您接受健康趨勢細胞解碼檢測，由檢測結果得知，您在此次的分析項目中，"
+        "低特質等共1項優勢評估分數較低，在此，也提供給您改善及建議方針："
+    )
+    doc = FakeDocument(
+        paragraphs=[
+            FakeParagraph("本報告所提供之心理天賦優勢分析"),
+            FakeParagraph("_____舊名字_____ 貴賓您好："),
+            FakeParagraph(low_intro),
+        ],
+        tables=[main_table],
+    )
+
+    converter._replace_recommendation_section(doc, "王曉明")
+
+    texts = [p.text for p in doc.paragraphs]
+    greeting = "_____王曉明_____ 貴賓您好："
+    greeting_indexes = [idx for idx, text in enumerate(texts) if text == greeting]
+    high_intro_index = next(idx for idx, text in enumerate(texts) if "優勢評估分數較高" in text)
+    low_intro_index = next(idx for idx, text in enumerate(texts) if "優勢評估分數較低" in text)
+
+    assert len(greeting_indexes) == 2
+    assert greeting_indexes[0] < high_intro_index
+    assert greeting_indexes[1] < low_intro_index
+    assert any(text == "\f" for text in texts[greeting_indexes[0] : greeting_indexes[1]])
+
+
 def test_convert_real_sample_docx_does_not_crash_and_keeps_two_greetings(tmp_path) -> None:
     import re
     from docx import Document

@@ -44,6 +44,9 @@ class WordReportConverter:
     RECOMMEND_BORDER_SIZE_EIGHTHS = 18  # 2 1/4 pt
     FONT_NAME = "微軟正黑體"
     RECOMMENDATION_GREETING_FONT_SIZE_PT = 16
+    RECOMMENDATION_INTRO_LINE_SPACING_PT = 16
+    HIGH_SCORE_INTRO_BLANK_LINE_SPACING_PT = 19
+    DISCLAIMER_FONT_SIZE_PT = 10
 
     LEGACY_MAIN_HEADERS = ["編號", "功能", "細胞解碼位點", "解碼型", "健康優勢評估", "健康優勢評分"]
     NEW_MAIN_HEADERS = ["編號", "心理天賦項目", "細胞解碼位點", "解碼型", "心理潛能優勢評估", "心理潛能優勢評分"]
@@ -78,6 +81,7 @@ class WordReportConverter:
         self._apply_fixed_text(document)
         self._replace_recommendation_section(document, name)
         self._highlight_score_emphasis_text(document)
+        self._apply_recommendation_format_overrides(document)
         self._apply_table_styles(document)
         self._apply_page_layout(document)
         self._apply_global_font(document)
@@ -282,8 +286,16 @@ class WordReportConverter:
 
         self._remove_existing_high_block_between_anchors(document, high_greeting_anchor, low_anchor)
 
+        high_intro_paragraph = None
         for text, font_size_pt in self._build_recommendation_paragraphs(high_features):
-            self._insert_paragraph_before_anchor(document, low_anchor, text, font_size_pt=font_size_pt)
+            inserted = self._insert_paragraph_before_anchor(document, low_anchor, text, font_size_pt=font_size_pt)
+            if inserted is not None and "優勢評估分數較高，在此，也提供給您改善及建議方針：" in text:
+                high_intro_paragraph = inserted
+
+        if high_intro_paragraph is not None:
+            blank_after_high_intro = self._insert_paragraph_before_anchor(document, low_anchor, "")
+            if blank_after_high_intro is not None:
+                self._set_paragraph_spacing_pt(blank_after_high_intro, self.HIGH_SCORE_INTRO_BLANK_LINE_SPACING_PT)
 
         self._insert_high_score_tables_before_anchor(document, high_features, low_anchor)
         self._insert_paragraph_before_anchor(
@@ -460,12 +472,12 @@ class WordReportConverter:
         anchor_paragraph: Any | None,
         text: str,
         font_size_pt: int | None = None,
-    ) -> None:
+    ) -> Any | None:
         if anchor_paragraph is not None and hasattr(anchor_paragraph, "insert_paragraph_before"):
             paragraph = anchor_paragraph.insert_paragraph_before(text)
             if font_size_pt is not None:
                 WordReportConverter._style_paragraph_text(paragraph, font_size_pt=font_size_pt)
-            return
+            return paragraph
 
         if hasattr(document, "paragraphs") and isinstance(document.paragraphs, list):
             paragraph_cls = type(document.paragraphs[0]) if document.paragraphs else None
@@ -481,12 +493,14 @@ class WordReportConverter:
                 document.paragraphs.insert(anchor_index, new_paragraph)
             else:
                 document.paragraphs.append(new_paragraph)
-            return
+            return new_paragraph
 
         if hasattr(document, "add_paragraph"):
             paragraph = document.add_paragraph(text)
             if font_size_pt is not None:
                 WordReportConverter._style_paragraph_text(paragraph, font_size_pt=font_size_pt)
+            return paragraph
+        return None
 
     def _insert_high_score_tables_before_anchor(
         self,
@@ -610,6 +624,25 @@ class WordReportConverter:
 
     def _build_recommendation_greeting(self, name: str) -> str:
         return f"_____{name}_____ 貴賓您好："
+
+    def _apply_recommendation_format_overrides(self, document: "DocxDocument") -> None:
+        for paragraph in getattr(document, "paragraphs", []):
+            text = getattr(paragraph, "text", "")
+            if self._is_recommendation_intro_paragraph(text):
+                self._set_paragraph_spacing_pt(paragraph, self.RECOMMENDATION_INTRO_LINE_SPACING_PT)
+            if self._is_disclaimer_paragraph(text):
+                self._style_paragraph_text(paragraph, font_size_pt=self.DISCLAIMER_FONT_SIZE_PT)
+
+    @staticmethod
+    def _is_recommendation_intro_paragraph(text: str) -> bool:
+        return (
+            "優勢評估分數較高，在此，也提供給您改善及建議方針：" in text
+            or "優勢評估分數較低，在此，也提供給您改善及建議方針：" in text
+        )
+
+    @staticmethod
+    def _is_disclaimer_paragraph(text: str) -> bool:
+        return "本報告所提供之心理天賦優勢分析" in text
 
     def _build_recommendation_paragraphs(
         self,
