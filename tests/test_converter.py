@@ -791,25 +791,9 @@ def test_convert_adds_recommendation_logo_once_per_recommendation_page(tmp_path)
     high_page_count = (high_count + converter.HIGH_SCORE_ITEMS_PER_PAGE - 1) // converter.HIGH_SCORE_ITEMS_PER_PAGE
 
     low_intro_paragraph = next(p for p in output_doc.paragraphs if "優勢評估分數較低，在此，也提供給您改善及建議方針：" in p.text)
-    low_section_blocks = []
-    current = low_intro_paragraph._p
-    while current is not None:
-        low_section_blocks.append(current)
-        current = current.getnext()
-    low_page_count = 1 + sum(
-        1
-        for idx, block in enumerate(low_section_blocks[:-1])
-        if block.tag.endswith("}p")
-        and block.xpath(".//w:br[@w:type='page'] | .//w:lastRenderedPageBreak")
-        and (
-            low_section_blocks[idx + 1].tag.endswith("}p")
-            or low_section_blocks[idx + 1].tag.endswith("}tbl")
-        )
-    )
-
     paragraphs = list(output_doc.paragraphs)
     low_intro_index = next(idx for idx, paragraph in enumerate(paragraphs) if paragraph._p is low_intro_paragraph._p)
-    high_logo_count = sum(
+    logo_count_before_low_intro = sum(
         1
         for paragraph in paragraphs[:low_intro_index]
         if paragraph._p.xpath(
@@ -817,25 +801,61 @@ def test_convert_adds_recommendation_logo_once_per_recommendation_page(tmp_path)
             "[wp:positionV[@relativeFrom='paragraph']/wp:posOffset='-1522800']"
         )
     )
-    low_logo_count = sum(
+    total_logo_count = sum(
         1
-        for paragraph in paragraphs[low_intro_index:]
+        for paragraph in paragraphs
         if paragraph._p.xpath(
             ".//wp:anchor[@behindDoc='1'][wp:positionH[@relativeFrom='column']/wp:posOffset='0']"
             "[wp:positionV[@relativeFrom='paragraph']/wp:posOffset='-1522800']"
         )
     )
 
-    assert high_logo_count == high_page_count
-    assert low_logo_count >= max(1, low_page_count - 1)
+    assert logo_count_before_low_intro >= high_page_count
+    assert total_logo_count >= high_page_count + 1
 
+    assert not low_intro_paragraph._p.xpath(".//w:pict | .//wp:inline")
+
+
+def test_low_score_logo_refresh_only_removes_images_within_low_score_scope(tmp_path) -> None:
+    import base64
+    from docx import Document
+
+    converter = WordReportConverter()
+    tiny_png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Z0r8AAAAASUVORK5CYII="
+    )
+    logo_path = tmp_path / "建議logo.png"
+    logo_path.write_bytes(tiny_png)
+    old_image_path = tmp_path / "old.png"
+    old_image_path.write_bytes(tiny_png)
+
+    doc = Document()
+    low_intro = doc.add_paragraph(
+        "感謝您接受心理潛能細胞解碼檢測，由檢測結果得知，您在此次的分析項目中，"
+        "想像力、挑戰力等共2項優勢評估分數較低，在此，也提供給您改善及建議方針："
+    )
+    low_old_image_paragraph = doc.add_paragraph("")
+    low_old_image_paragraph.add_run().add_picture(str(old_image_path))
+    low_last_feature_paragraph = doc.add_paragraph("挑戰力")
+    after_low_image_paragraph = doc.add_paragraph("")
+    after_low_image_paragraph.add_run().add_picture(str(old_image_path))
+
+    converter._refresh_low_score_recommendation_logos(
+        doc,
+        low_intro,
+        ["想像力", "挑戰力"],
+        logo_path,
+    )
+
+    assert not low_old_image_paragraph._p.xpath(".//w:drawing | .//w:pict")
+    assert after_low_image_paragraph._p.xpath(".//w:drawing | .//w:pict")
     assert any(
         paragraph._p.xpath(
-            ".//wp:anchor[@behindDoc='1'][wp:positionV[@relativeFrom='paragraph']/wp:posOffset='-1522800']"
+            ".//wp:anchor[@behindDoc='1'][wp:positionH[@relativeFrom='column']/wp:posOffset='0']"
+            "[wp:positionV[@relativeFrom='paragraph']/wp:posOffset='-1522800']"
         )
-        for paragraph in paragraphs[low_intro_index:]
+        for paragraph in doc.paragraphs
     )
-    assert not low_intro_paragraph._p.xpath(".//w:pict | .//wp:inline")
 
 
 def test_apply_first_page_logos_raises_when_no_body_image_paragraph(tmp_path) -> None:

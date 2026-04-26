@@ -51,6 +51,7 @@ class WordReportConverter:
     RIGHT_LOGO_BASENAME = "心理logo總表"
     RECOMMENDATION_LOGO_BASENAME = "建議logo"
     HIGH_SCORE_ITEMS_PER_PAGE = 2
+    LOW_SCORE_ITEMS_PER_PAGE = 2
 
     LEGACY_MAIN_HEADERS = ["編號", "功能", "細胞解碼位點", "解碼型", "健康優勢評估", "健康優勢評分"]
     NEW_MAIN_HEADERS = ["編號", "心理天賦項目", "細胞解碼位點", "解碼型", "心理潛能優勢評估", "心理潛能優勢評分"]
@@ -309,7 +310,7 @@ class WordReportConverter:
 
         recommendation_logo = self._resolve_logo_path(self.RECOMMENDATION_LOGO_BASENAME, input_dir) if input_dir else None
         self._insert_high_score_tables_before_anchor(document, high_features, low_anchor, recommendation_logo)
-        self._refresh_low_score_recommendation_logos(document, low_anchor, recommendation_logo)
+        self._refresh_low_score_recommendation_logos(document, low_anchor, low_features, recommendation_logo)
         self._insert_paragraph_before_anchor(
             document,
             low_anchor,
@@ -598,43 +599,38 @@ class WordReportConverter:
         self,
         document: "DocxDocument",
         low_anchor: Any | None,
+        low_features: list[str],
         recommendation_logo: Path | None,
     ) -> None:
         if low_anchor is None:
             return
-
-        self._remove_existing_images_from_low_score_section(document, low_anchor)
-        self._insert_low_score_logos_by_page(document, low_anchor, recommendation_logo)
-
-    def _remove_existing_images_from_low_score_section(self, document: "DocxDocument", low_anchor: Any) -> None:
-        if not hasattr(low_anchor, "_p"):
+        low_anchor_text = getattr(low_anchor, "text", "")
+        if "優勢評估分數較低" not in low_anchor_text and "健康優勢評估分數較低" not in low_anchor_text:
             return
 
-        for block in self._iter_low_section_block_elements(low_anchor):
+        low_section_blocks = self._iter_low_section_block_elements(low_anchor, low_features)
+        if not low_section_blocks:
+            return
+
+        self._remove_existing_images_from_low_score_section(low_section_blocks)
+        self._insert_low_score_logos_by_feature_pages(low_anchor, low_features, low_section_blocks, recommendation_logo)
+
+    @staticmethod
+    def _remove_existing_images_from_low_score_section(low_section_blocks: list[Any]) -> None:
+        for block in low_section_blocks:
             for node in block.xpath(".//w:drawing | .//w:pict"):
                 parent = node.getparent()
                 if parent is not None:
                     parent.remove(node)
 
-    def _insert_low_score_logos_by_page(
+    def _insert_low_score_logos_by_feature_pages(
         self,
-        document: "DocxDocument",
         low_anchor: Any,
+        low_features: list[str],
+        low_section_blocks: list[Any],
         recommendation_logo: Path | None,
     ) -> None:
-        if not hasattr(low_anchor, "_p"):
-            return
-
-        blocks = list(self._iter_low_section_block_elements(low_anchor))
-        if not blocks:
-            return
-
-        page_start_blocks: list[Any] = [blocks[0]]
-        for index, block in enumerate(blocks):
-            if index + 1 >= len(blocks):
-                continue
-            if self._block_has_page_break(block):
-                page_start_blocks.append(blocks[index + 1])
+        page_start_blocks = self._collect_low_score_page_start_blocks(low_section_blocks, low_features)
 
         inserted_paragraph_elements: set[Any] = set()
         for block in page_start_blocks:
@@ -646,24 +642,42 @@ class WordReportConverter:
             inserted_paragraph_elements.add(paragraph._p)
             self._add_recommendation_logo_to_paragraph(paragraph, recommendation_logo)
 
+    def _collect_low_score_page_start_blocks(self, low_section_blocks: list[Any], low_features: list[str]) -> list[Any]:
+        if not low_section_blocks:
+            return []
+
+        page_start_blocks: list[Any] = [low_section_blocks[0]]
+        normalized_features = [feature.strip() for feature in low_features if feature.strip()]
+        if not normalized_features:
+            return page_start_blocks
+
+        feature_index = 0
+        for block in low_section_blocks:
+            block_text = "".join(block.itertext())
+            while feature_index < len(normalized_features) and normalized_features[feature_index] in block_text:
+                if feature_index % self.LOW_SCORE_ITEMS_PER_PAGE == 0:
+                    page_start_blocks.append(block)
+                feature_index += 1
+
+        return page_start_blocks
+
     @staticmethod
-    def _iter_low_section_block_elements(low_anchor: Any) -> list[Any]:
+    def _iter_low_section_block_elements(low_anchor: Any, low_features: list[str]) -> list[Any]:
         if not hasattr(low_anchor, "_p"):
             return []
 
         blocks: list[Any] = []
         current = low_anchor._p
+        normalized_features = [feature.strip() for feature in low_features if feature.strip()]
+        last_feature = normalized_features[-1] if normalized_features else None
+        is_first_block = True
         while current is not None:
             blocks.append(current)
+            if not is_first_block and last_feature and last_feature in "".join(current.itertext()):
+                break
+            is_first_block = False
             current = current.getnext()
         return blocks
-
-    @staticmethod
-    def _block_has_page_break(block: Any) -> bool:
-        tag_name = getattr(block, "tag", "")
-        if not tag_name.endswith("}p"):
-            return False
-        return bool(block.xpath(".//w:br[@w:type='page'] | .//w:lastRenderedPageBreak"))
 
     @staticmethod
     def _ensure_logo_anchor_paragraph(low_anchor: Any, block: Any) -> Any | None:
@@ -671,12 +685,7 @@ class WordReportConverter:
             return None
 
         tag_name = getattr(block, "tag", "")
-        if tag_name.endswith("}p"):
-            from docx.text.paragraph import Paragraph
-
-            return Paragraph(block, low_anchor._parent)
-
-        if tag_name.endswith("}tbl"):
+        if tag_name.endswith("}p") or tag_name.endswith("}tbl"):
             from docx.oxml import OxmlElement
             from docx.text.paragraph import Paragraph
 
