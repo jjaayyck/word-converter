@@ -759,7 +759,7 @@ def test_apply_first_page_logos_inserts_two_body_images_with_valid_image_relatio
         assert "image" in rel.reltype
 
 
-def test_convert_adds_recommendation_logo_to_each_high_score_page_only(tmp_path) -> None:
+def test_convert_adds_recommendation_logo_once_per_high_score_page(tmp_path) -> None:
     import base64
     import shutil
     from docx import Document
@@ -778,19 +778,19 @@ def test_convert_adds_recommendation_logo_to_each_high_score_page_only(tmp_path)
     result = converter.convert(sample, tmp_path)
     output_doc = Document(str(result.output_path))
 
-    high_count = 0
-    for table in output_doc.tables:
-        for row in table.rows[1:]:
-            if len(row.cells) >= 5 and row.cells[4].text.strip() == "高":
-                high_count += 1
-        if high_count:
-            break
+    paragraphs = list(output_doc.paragraphs)
+    high_intro_idx = next(i for i, p in enumerate(paragraphs) if "優勢評估分數較高，在此，也提供給您改善及建議方針：" in p.text)
+    low_intro_idx = next(i for i, p in enumerate(paragraphs) if "優勢評估分數較低，在此，也提供給您改善及建議方針：" in p.text)
+    expected_page_count = 1
+    for paragraph in paragraphs[high_intro_idx:low_intro_idx]:
+        if paragraph._p.xpath(".//w:br[@w:type='page']"):
+            expected_page_count += 1
 
     logo_anchors = output_doc.element.xpath(
         ".//wp:anchor[@behindDoc='1'][wp:positionH[@relativeFrom='column']/wp:posOffset='0']"
         "[wp:positionV[@relativeFrom='paragraph']/wp:posOffset='-1522800']"
     )
-    assert len(logo_anchors) == high_count
+    assert len(logo_anchors) == expected_page_count
 
     low_intro_paragraph = next(p for p in output_doc.paragraphs if "優勢評估分數較低，在此，也提供給您改善及建議方針：" in p.text)
     assert not low_intro_paragraph._p.xpath(
