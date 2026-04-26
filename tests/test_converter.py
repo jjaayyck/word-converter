@@ -626,34 +626,40 @@ def test_apply_recommendation_format_overrides_sets_disclaimer_font_size_to_10pt
     assert all(run.font.size == Pt(10) for run in paragraph.runs)
 
 
-def test_apply_recommendation_format_overrides_adds_trailing_blank_line_with_19pt_after_high_intro_only() -> None:
+def test_replace_recommendation_section_inserts_19pt_blank_paragraph_between_high_intro_and_first_high_table() -> None:
     from docx import Document
+    from docx.text.paragraph import Paragraph
     from docx.shared import Pt
 
     converter = WordReportConverter()
     doc = Document()
-    high_intro = (
-        "感謝您接受心理潛能細胞解碼檢測，由檢測結果得知，您在此次的分析項目中，"
-        "空間感等共1項優勢評估分數較高，在此，也提供給您改善及建議方針："
-    )
-    low_intro = (
-        "感謝您接受健康趨勢細胞解碼檢測，由檢測結果得知，您在此次的分析項目中，"
-        "空間感等共1項優勢評估分數較低，在此，也提供給您改善及建議方針："
-    )
-    doc.add_paragraph(high_intro)
-    doc.add_paragraph("高分後內容")
+    doc.add_paragraph("本報告所提供之心理天賦優勢分析")
+    low_intro = "感謝您接受心理潛能細胞解碼檢測，由檢測結果得知，您在此次的分析項目中，低特質等共1項優勢評估分數較低，在此，也提供給您改善及建議方針："
     doc.add_paragraph(low_intro)
-    doc.add_paragraph("低分後內容")
 
+    table = doc.add_table(rows=3, cols=6)
+    headers = ["編號", "功能", "細胞解碼位點", "解碼型", "健康優勢評估", "健康優勢評分"]
+    for idx, header in enumerate(headers):
+        table.rows[0].cells[idx].text = header
+    table.rows[1].cells[1].text = "服從性格"
+    table.rows[1].cells[4].text = "高"
+    table.rows[2].cells[1].text = "低特質"
+    table.rows[2].cells[4].text = "低"
+
+    converter._replace_recommendation_section(doc, "王曉明")
     converter._apply_recommendation_format_overrides(doc)
 
-    texts = [p.text for p in doc.paragraphs]
-    high_idx = texts.index(high_intro)
-    low_idx = texts.index(low_intro)
+    high_intro_paragraph = next(p for p in doc.paragraphs if "優勢評估分數較高，在此，也提供給您改善及建議方針：" in p.text)
+    blank_paragraph_element = high_intro_paragraph._p.getnext()
+    blank_paragraph = Paragraph(blank_paragraph_element, high_intro_paragraph._parent)
 
-    assert texts[high_idx + 1] == ""
-    assert doc.paragraphs[high_idx + 1].paragraph_format.line_spacing == Pt(19)
-    assert texts[low_idx + 1] == "低分後內容"
+    assert blank_paragraph.text == ""
+    assert blank_paragraph.paragraph_format.line_spacing == Pt(19)
+
+    first_high_table_element = blank_paragraph_element.getnext()
+    assert first_high_table_element.tag.endswith("tbl")
+    first_high_table_text = "".join(first_high_table_element.itertext())
+    assert "服從性格" in first_high_table_text
 
 
 def test_replace_recommendation_section_keeps_two_greetings_high_then_low_and_page_break() -> None:
