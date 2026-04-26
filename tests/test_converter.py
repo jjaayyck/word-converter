@@ -626,6 +626,37 @@ def test_apply_recommendation_format_overrides_sets_disclaimer_font_size_to_10pt
     assert all(run.font.size == Pt(10) for run in paragraph.runs)
 
 
+def test_apply_recommendation_format_overrides_adds_trailing_blank_line_with_19pt_after_intro() -> None:
+    from docx import Document
+    from docx.shared import Pt
+
+    converter = WordReportConverter()
+    doc = Document()
+    high_intro = (
+        "感謝您接受心理潛能細胞解碼檢測，由檢測結果得知，您在此次的分析項目中，"
+        "空間感等共1項優勢評估分數較高，在此，也提供給您改善及建議方針："
+    )
+    low_intro = (
+        "感謝您接受健康趨勢細胞解碼檢測，由檢測結果得知，您在此次的分析項目中，"
+        "空間感等共1項優勢評估分數較低，在此，也提供給您改善及建議方針："
+    )
+    doc.add_paragraph(high_intro)
+    doc.add_paragraph("高分後內容")
+    doc.add_paragraph(low_intro)
+    doc.add_paragraph("低分後內容")
+
+    converter._apply_recommendation_format_overrides(doc)
+
+    texts = [p.text for p in doc.paragraphs]
+    high_idx = texts.index(high_intro)
+    low_idx = texts.index(low_intro)
+
+    assert texts[high_idx + 1] == ""
+    assert texts[low_idx + 1] == ""
+    assert doc.paragraphs[high_idx + 1].paragraph_format.line_spacing == Pt(19)
+    assert doc.paragraphs[low_idx + 1].paragraph_format.line_spacing == Pt(19)
+
+
 def test_replace_recommendation_section_keeps_two_greetings_high_then_low_and_page_break() -> None:
     converter = WordReportConverter()
     main_table = _build_main_table()

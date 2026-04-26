@@ -45,6 +45,7 @@ class WordReportConverter:
     FONT_NAME = "微軟正黑體"
     RECOMMENDATION_GREETING_FONT_SIZE_PT = 16
     RECOMMENDATION_INTRO_LINE_SPACING_PT = 16
+    RECOMMENDATION_INTRO_TRAILING_LINE_SPACING_PT = 19
     DISCLAIMER_FONT_SIZE_PT = 10
 
     LEGACY_MAIN_HEADERS = ["編號", "功能", "細胞解碼位點", "解碼型", "健康優勢評估", "健康優勢評分"]
@@ -615,12 +616,17 @@ class WordReportConverter:
         return f"_____{name}_____ 貴賓您好："
 
     def _apply_recommendation_format_overrides(self, document: "DocxDocument") -> None:
+        intro_paragraphs: list[Any] = []
         for paragraph in getattr(document, "paragraphs", []):
             text = getattr(paragraph, "text", "")
             if self._is_recommendation_intro_paragraph(text):
                 self._set_paragraph_spacing_pt(paragraph, self.RECOMMENDATION_INTRO_LINE_SPACING_PT)
+                intro_paragraphs.append(paragraph)
             if self._is_disclaimer_paragraph(text):
                 self._style_paragraph_text(paragraph, font_size_pt=self.DISCLAIMER_FONT_SIZE_PT)
+
+        for paragraph in intro_paragraphs:
+            self._ensure_intro_trailing_blank_line(document, paragraph)
 
     @staticmethod
     def _is_recommendation_intro_paragraph(text: str) -> bool:
@@ -632,6 +638,45 @@ class WordReportConverter:
     @staticmethod
     def _is_disclaimer_paragraph(text: str) -> bool:
         return "本報告所提供之心理天賦優勢分析" in text
+
+    def _ensure_intro_trailing_blank_line(self, document: "DocxDocument", paragraph: Any) -> None:
+        paragraphs = list(getattr(document, "paragraphs", []))
+        target_index = None
+        for idx, current in enumerate(paragraphs):
+            if current is paragraph:
+                target_index = idx
+                break
+            if hasattr(current, "_p") and hasattr(paragraph, "_p") and current._p is paragraph._p:
+                target_index = idx
+                break
+        if target_index is None:
+            return
+        next_paragraph = paragraphs[target_index + 1] if target_index + 1 < len(paragraphs) else None
+        if next_paragraph is not None and not getattr(next_paragraph, "text", "").strip():
+            self._set_paragraph_spacing_pt(next_paragraph, self.RECOMMENDATION_INTRO_TRAILING_LINE_SPACING_PT)
+            return
+
+        inserted = None
+        if next_paragraph is not None and hasattr(next_paragraph, "insert_paragraph_before"):
+            inserted = next_paragraph.insert_paragraph_before("")
+        if inserted is None:
+            inserted = self._insert_paragraph_after(paragraph, "")
+        if inserted is not None:
+            self._set_paragraph_spacing_pt(inserted, self.RECOMMENDATION_INTRO_TRAILING_LINE_SPACING_PT)
+
+    @staticmethod
+    def _insert_paragraph_after(paragraph: Any, text: str) -> Any | None:
+        if hasattr(paragraph, "_p") and hasattr(paragraph, "_parent"):
+            from docx.oxml import OxmlElement
+            from docx.text.paragraph import Paragraph
+
+            new_p = OxmlElement("w:p")
+            paragraph._p.addnext(new_p)
+            new_paragraph = Paragraph(new_p, paragraph._parent)
+            if text:
+                new_paragraph.add_run(text)
+            return new_paragraph
+        return None
 
     def _build_recommendation_paragraphs(
         self,
