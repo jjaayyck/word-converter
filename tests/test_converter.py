@@ -762,7 +762,7 @@ def test_apply_first_page_logos_inserts_two_body_images_with_valid_image_relatio
         assert "image" in rel.reltype
 
 
-def test_convert_adds_recommendation_logo_once_per_high_score_page(tmp_path) -> None:
+def test_convert_adds_recommendation_logo_once_per_recommendation_page(tmp_path) -> None:
     import base64
     import shutil
     from docx import Document
@@ -788,18 +788,54 @@ def test_convert_adds_recommendation_logo_once_per_high_score_page(tmp_path) -> 
                 high_count += 1
         if high_count:
             break
-    expected_page_count = (high_count + converter.HIGH_SCORE_ITEMS_PER_PAGE - 1) // converter.HIGH_SCORE_ITEMS_PER_PAGE
-
-    logo_anchors = output_doc.element.xpath(
-        ".//wp:anchor[@behindDoc='1'][wp:positionH[@relativeFrom='column']/wp:posOffset='0']"
-        "[wp:positionV[@relativeFrom='paragraph']/wp:posOffset='-1522800']"
-    )
-    assert len(logo_anchors) == expected_page_count
+    high_page_count = (high_count + converter.HIGH_SCORE_ITEMS_PER_PAGE - 1) // converter.HIGH_SCORE_ITEMS_PER_PAGE
 
     low_intro_paragraph = next(p for p in output_doc.paragraphs if "優勢評估分數較低，在此，也提供給您改善及建議方針：" in p.text)
-    assert not low_intro_paragraph._p.xpath(
-        ".//wp:anchor[@behindDoc='1'][wp:positionV[@relativeFrom='paragraph']/wp:posOffset='-1522800']"
+    low_section_blocks = []
+    current = low_intro_paragraph._p
+    while current is not None:
+        low_section_blocks.append(current)
+        current = current.getnext()
+    low_page_count = 1 + sum(
+        1
+        for idx, block in enumerate(low_section_blocks[:-1])
+        if block.tag.endswith("}p")
+        and block.xpath(".//w:br[@w:type='page'] | .//w:lastRenderedPageBreak")
+        and (
+            low_section_blocks[idx + 1].tag.endswith("}p")
+            or low_section_blocks[idx + 1].tag.endswith("}tbl")
+        )
     )
+
+    paragraphs = list(output_doc.paragraphs)
+    low_intro_index = next(idx for idx, paragraph in enumerate(paragraphs) if paragraph._p is low_intro_paragraph._p)
+    high_logo_count = sum(
+        1
+        for paragraph in paragraphs[:low_intro_index]
+        if paragraph._p.xpath(
+            ".//wp:anchor[@behindDoc='1'][wp:positionH[@relativeFrom='column']/wp:posOffset='0']"
+            "[wp:positionV[@relativeFrom='paragraph']/wp:posOffset='-1522800']"
+        )
+    )
+    low_logo_count = sum(
+        1
+        for paragraph in paragraphs[low_intro_index:]
+        if paragraph._p.xpath(
+            ".//wp:anchor[@behindDoc='1'][wp:positionH[@relativeFrom='column']/wp:posOffset='0']"
+            "[wp:positionV[@relativeFrom='paragraph']/wp:posOffset='-1522800']"
+        )
+    )
+
+    assert high_logo_count == high_page_count
+    assert low_logo_count >= max(1, low_page_count - 1)
+
+    assert any(
+        paragraph._p.xpath(
+            ".//wp:anchor[@behindDoc='1'][wp:positionV[@relativeFrom='paragraph']/wp:posOffset='-1522800']"
+        )
+        for paragraph in paragraphs[low_intro_index:]
+    )
+    assert not low_intro_paragraph._p.xpath(".//w:pict | .//wp:inline")
 
 
 def test_apply_first_page_logos_raises_when_no_body_image_paragraph(tmp_path) -> None:

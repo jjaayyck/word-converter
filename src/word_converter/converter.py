@@ -309,6 +309,7 @@ class WordReportConverter:
 
         recommendation_logo = self._resolve_logo_path(self.RECOMMENDATION_LOGO_BASENAME, input_dir) if input_dir else None
         self._insert_high_score_tables_before_anchor(document, high_features, low_anchor, recommendation_logo)
+        self._refresh_low_score_recommendation_logos(document, low_anchor, recommendation_logo)
         self._insert_paragraph_before_anchor(
             document,
             low_anchor,
@@ -592,6 +593,98 @@ class WordReportConverter:
             vertical_relative="paragraph",
             behind_text=True,
         )
+
+    def _refresh_low_score_recommendation_logos(
+        self,
+        document: "DocxDocument",
+        low_anchor: Any | None,
+        recommendation_logo: Path | None,
+    ) -> None:
+        if low_anchor is None:
+            return
+
+        self._remove_existing_images_from_low_score_section(document, low_anchor)
+        self._insert_low_score_logos_by_page(document, low_anchor, recommendation_logo)
+
+    def _remove_existing_images_from_low_score_section(self, document: "DocxDocument", low_anchor: Any) -> None:
+        if not hasattr(low_anchor, "_p"):
+            return
+
+        for block in self._iter_low_section_block_elements(low_anchor):
+            for node in block.xpath(".//w:drawing | .//w:pict"):
+                parent = node.getparent()
+                if parent is not None:
+                    parent.remove(node)
+
+    def _insert_low_score_logos_by_page(
+        self,
+        document: "DocxDocument",
+        low_anchor: Any,
+        recommendation_logo: Path | None,
+    ) -> None:
+        if not hasattr(low_anchor, "_p"):
+            return
+
+        blocks = list(self._iter_low_section_block_elements(low_anchor))
+        if not blocks:
+            return
+
+        page_start_blocks: list[Any] = [blocks[0]]
+        for index, block in enumerate(blocks):
+            if index + 1 >= len(blocks):
+                continue
+            if self._block_has_page_break(block):
+                page_start_blocks.append(blocks[index + 1])
+
+        inserted_paragraph_elements: set[Any] = set()
+        for block in page_start_blocks:
+            paragraph = self._ensure_logo_anchor_paragraph(low_anchor, block)
+            if paragraph is None or not hasattr(paragraph, "_p"):
+                continue
+            if paragraph._p in inserted_paragraph_elements:
+                continue
+            inserted_paragraph_elements.add(paragraph._p)
+            self._add_recommendation_logo_to_paragraph(paragraph, recommendation_logo)
+
+    @staticmethod
+    def _iter_low_section_block_elements(low_anchor: Any) -> list[Any]:
+        if not hasattr(low_anchor, "_p"):
+            return []
+
+        blocks: list[Any] = []
+        current = low_anchor._p
+        while current is not None:
+            blocks.append(current)
+            current = current.getnext()
+        return blocks
+
+    @staticmethod
+    def _block_has_page_break(block: Any) -> bool:
+        tag_name = getattr(block, "tag", "")
+        if not tag_name.endswith("}p"):
+            return False
+        return bool(block.xpath(".//w:br[@w:type='page'] | .//w:lastRenderedPageBreak"))
+
+    @staticmethod
+    def _ensure_logo_anchor_paragraph(low_anchor: Any, block: Any) -> Any | None:
+        if not hasattr(low_anchor, "_parent"):
+            return None
+
+        tag_name = getattr(block, "tag", "")
+        if tag_name.endswith("}p"):
+            from docx.text.paragraph import Paragraph
+
+            return Paragraph(block, low_anchor._parent)
+
+        if tag_name.endswith("}tbl"):
+            from docx.oxml import OxmlElement
+            from docx.text.paragraph import Paragraph
+
+            paragraph_element = OxmlElement("w:p")
+            block.addprevious(paragraph_element)
+            return Paragraph(paragraph_element, low_anchor._parent)
+
+        return None
 
     def _build_high_score_suggestion_text(self, feature: str) -> str:
         feature_key = feature.strip()
