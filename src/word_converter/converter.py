@@ -50,6 +50,7 @@ class WordReportConverter:
     LEFT_LOGO_BASENAME = "威力logo總表"
     RIGHT_LOGO_BASENAME = "心理logo總表"
     RECOMMENDATION_LOGO_BASENAME = "建議logo"
+    HIGH_SCORE_ITEMS_PER_PAGE = 2
 
     LEGACY_MAIN_HEADERS = ["編號", "功能", "細胞解碼位點", "解碼型", "健康優勢評估", "健康優勢評分"]
     NEW_MAIN_HEADERS = ["編號", "心理天賦項目", "細胞解碼位點", "解碼型", "心理潛能優勢評估", "心理潛能優勢評分"]
@@ -85,7 +86,6 @@ class WordReportConverter:
         self._replace_recommendation_section(document, name, input_file.parent)
         self._highlight_score_emphasis_text(document)
         self._apply_recommendation_format_overrides(document)
-        self._apply_high_score_recommendation_logos(document, input_file.parent)
         self._apply_table_styles(document)
         self._apply_first_page_logos(document, input_file.parent)
         self._apply_page_layout(document)
@@ -307,7 +307,8 @@ class WordReportConverter:
             if blank_after_high_intro is not None:
                 self._set_paragraph_spacing_pt(blank_after_high_intro, self.HIGH_SCORE_INTRO_BLANK_LINE_SPACING_PT)
 
-        self._insert_high_score_tables_before_anchor(document, high_features, low_anchor)
+        recommendation_logo = self._resolve_logo_path(self.RECOMMENDATION_LOGO_BASENAME, input_dir) if input_dir else None
+        self._insert_high_score_tables_before_anchor(document, high_features, low_anchor, recommendation_logo)
         self._insert_paragraph_before_anchor(
             document,
             low_anchor,
@@ -318,21 +319,6 @@ class WordReportConverter:
 
         if low_anchor is None:
             self._append_page_break(document)
-
-    def _apply_high_score_recommendation_logos(self, document: "DocxDocument", input_dir: Path | None) -> None:
-        recommendation_logo = self._resolve_logo_path(self.RECOMMENDATION_LOGO_BASENAME, input_dir) if input_dir else None
-        if recommendation_logo is None:
-            return
-        high_intro = None
-        low_intro = None
-        for paragraph in getattr(document, "paragraphs", []):
-            text = getattr(paragraph, "text", "")
-            if high_intro is None and "優勢評估分數較高，在此，也提供給您改善及建議方針：" in text:
-                high_intro = paragraph
-            if "優勢評估分數較低，在此，也提供給您改善及建議方針：" in text:
-                low_intro = paragraph
-                break
-        self._add_recommendation_logo_per_high_score_page(document, recommendation_logo, high_intro, low_intro)
 
     @staticmethod
     def _append_paragraph(document: "DocxDocument", text: str) -> Any | None:
@@ -532,13 +518,20 @@ class WordReportConverter:
         document: "DocxDocument",
         high_features: list[str],
         anchor_paragraph: Any | None,
+        recommendation_logo: Path | None = None,
     ) -> None:
         if not hasattr(document, "add_table"):
             self._insert_page_break_before_anchor(document, anchor_paragraph)
             return
 
         feature_items = high_features or ["綜合能力"]
+        items_on_current_page = 0
         for index, feature in enumerate(feature_items):
+            if items_on_current_page == 0:
+                logo_anchor_paragraph = self._insert_paragraph_before_anchor(document, anchor_paragraph, "")
+                if logo_anchor_paragraph is not None:
+                    self._add_recommendation_logo_to_paragraph(logo_anchor_paragraph, recommendation_logo)
+
             header_table = document.add_table(rows=1, cols=1)
             if anchor_paragraph is not None and hasattr(anchor_paragraph, "_p") and hasattr(header_table, "_tbl"):
                 anchor_paragraph._p.addprevious(header_table._tbl)
@@ -571,49 +564,21 @@ class WordReportConverter:
                 size_eighths=self.RECOMMEND_BORDER_SIZE_EIGHTHS,
             )
             self._set_row_height_cm(suggestion_table.rows[0], 7)
+            items_on_current_page += 1
 
             if index < len(feature_items) - 1:
-                between = self._insert_or_append_spacer_paragraph(document, anchor_paragraph)
-                self._set_paragraph_spacing_pt(between, line_spacing_pt=19)
+                if items_on_current_page >= self.HIGH_SCORE_ITEMS_PER_PAGE:
+                    self._insert_page_break_before_anchor(document, anchor_paragraph)
+                    items_on_current_page = 0
+                else:
+                    between = self._insert_or_append_spacer_paragraph(document, anchor_paragraph)
+                    self._set_paragraph_spacing_pt(between, line_spacing_pt=19)
             else:
                 self._insert_page_break_before_anchor(document, anchor_paragraph)
 
-    def _add_recommendation_logo_per_high_score_page(
-        self,
-        document: "DocxDocument",
-        recommendation_logo: Path | None,
-        high_intro_paragraph: Any | None,
-        low_anchor_paragraph: Any | None,
-    ) -> None:
+    def _add_recommendation_logo_to_paragraph(self, paragraph: Any, recommendation_logo: Path | None) -> None:
         if recommendation_logo is None or not recommendation_logo.exists():
             return
-        paragraphs = list(getattr(document, "paragraphs", []))
-        if not paragraphs or high_intro_paragraph is None or low_anchor_paragraph is None:
-            return
-
-        if not hasattr(high_intro_paragraph, "_p") or not hasattr(low_anchor_paragraph, "_p"):
-            return
-
-        start_idx = next((i for i, p in enumerate(paragraphs) if hasattr(p, "_p") and p._p == high_intro_paragraph._p), None)
-        end_idx = next((i for i, p in enumerate(paragraphs) if hasattr(p, "_p") and p._p == low_anchor_paragraph._p), None)
-        if start_idx is None or end_idx is None:
-            return
-        if end_idx <= start_idx:
-            return
-
-        page_start_paragraphs = [high_intro_paragraph]
-        next_paragraph_starts_new_page = False
-        for paragraph in paragraphs[start_idx:end_idx]:
-            if next_paragraph_starts_new_page:
-                page_start_paragraphs.append(paragraph)
-                next_paragraph_starts_new_page = False
-            if hasattr(paragraph, "_p") and paragraph._p.xpath(".//w:br[@w:type='page']"):
-                next_paragraph_starts_new_page = True
-
-        for paragraph in page_start_paragraphs:
-            self._add_recommendation_logo_to_paragraph(paragraph, recommendation_logo)
-
-    def _add_recommendation_logo_to_paragraph(self, paragraph: Any, recommendation_logo: Path) -> None:
         if not hasattr(paragraph, "add_run"):
             return
 

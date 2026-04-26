@@ -659,6 +659,9 @@ def test_replace_recommendation_section_inserts_19pt_blank_paragraph_between_hig
     assert blank_paragraph.paragraph_format.line_spacing == Pt(19)
 
     first_high_table_element = blank_paragraph_element.getnext()
+    while first_high_table_element is not None and first_high_table_element.tag.endswith("p"):
+        first_high_table_element = first_high_table_element.getnext()
+    assert first_high_table_element is not None
     assert first_high_table_element.tag.endswith("tbl")
     first_high_table_text = "".join(first_high_table_element.itertext())
     assert "服從性格" in first_high_table_text
@@ -778,13 +781,14 @@ def test_convert_adds_recommendation_logo_once_per_high_score_page(tmp_path) -> 
     result = converter.convert(sample, tmp_path)
     output_doc = Document(str(result.output_path))
 
-    paragraphs = list(output_doc.paragraphs)
-    high_intro_idx = next(i for i, p in enumerate(paragraphs) if "優勢評估分數較高，在此，也提供給您改善及建議方針：" in p.text)
-    low_intro_idx = next(i for i, p in enumerate(paragraphs) if "優勢評估分數較低，在此，也提供給您改善及建議方針：" in p.text)
-    expected_page_count = 1
-    for paragraph in paragraphs[high_intro_idx:low_intro_idx]:
-        if paragraph._p.xpath(".//w:br[@w:type='page']"):
-            expected_page_count += 1
+    high_count = 0
+    for table in output_doc.tables:
+        for row in table.rows[1:]:
+            if len(row.cells) >= 5 and row.cells[4].text.strip() == "高":
+                high_count += 1
+        if high_count:
+            break
+    expected_page_count = (high_count + converter.HIGH_SCORE_ITEMS_PER_PAGE - 1) // converter.HIGH_SCORE_ITEMS_PER_PAGE
 
     logo_anchors = output_doc.element.xpath(
         ".//wp:anchor[@behindDoc='1'][wp:positionH[@relativeFrom='column']/wp:posOffset='0']"
