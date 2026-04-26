@@ -659,6 +659,9 @@ def test_replace_recommendation_section_inserts_19pt_blank_paragraph_between_hig
     assert blank_paragraph.paragraph_format.line_spacing == Pt(19)
 
     first_high_table_element = blank_paragraph_element.getnext()
+    while first_high_table_element is not None and first_high_table_element.tag.endswith("p"):
+        first_high_table_element = first_high_table_element.getnext()
+    assert first_high_table_element is not None
     assert first_high_table_element.tag.endswith("tbl")
     first_high_table_text = "".join(first_high_table_element.itertext())
     assert "服從性格" in first_high_table_text
@@ -757,6 +760,46 @@ def test_apply_first_page_logos_inserts_two_body_images_with_valid_image_relatio
     for rel_id in embed_ids:
         rel = output_doc.part.rels[rel_id]
         assert "image" in rel.reltype
+
+
+def test_convert_adds_recommendation_logo_once_per_high_score_page(tmp_path) -> None:
+    import base64
+    import shutil
+    from docx import Document
+
+    converter = WordReportConverter()
+    sample_src = Path("src/word_converter/samples/input/APT-01-009297.docx")
+    sample = tmp_path / sample_src.name
+    shutil.copy(sample_src, sample)
+    tiny_png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Z0r8AAAAASUVORK5CYII="
+    )
+    (tmp_path / "威力logo總表.png").write_bytes(tiny_png)
+    (tmp_path / "心理logo總表.png").write_bytes(tiny_png)
+    (tmp_path / "建議logo.png").write_bytes(tiny_png)
+
+    result = converter.convert(sample, tmp_path)
+    output_doc = Document(str(result.output_path))
+
+    high_count = 0
+    for table in output_doc.tables:
+        for row in table.rows[1:]:
+            if len(row.cells) >= 5 and row.cells[4].text.strip() == "高":
+                high_count += 1
+        if high_count:
+            break
+    expected_page_count = (high_count + converter.HIGH_SCORE_ITEMS_PER_PAGE - 1) // converter.HIGH_SCORE_ITEMS_PER_PAGE
+
+    logo_anchors = output_doc.element.xpath(
+        ".//wp:anchor[@behindDoc='1'][wp:positionH[@relativeFrom='column']/wp:posOffset='0']"
+        "[wp:positionV[@relativeFrom='paragraph']/wp:posOffset='-1522800']"
+    )
+    assert len(logo_anchors) == expected_page_count
+
+    low_intro_paragraph = next(p for p in output_doc.paragraphs if "優勢評估分數較低，在此，也提供給您改善及建議方針：" in p.text)
+    assert not low_intro_paragraph._p.xpath(
+        ".//wp:anchor[@behindDoc='1'][wp:positionV[@relativeFrom='paragraph']/wp:posOffset='-1522800']"
+    )
 
 
 def test_apply_first_page_logos_raises_when_no_body_image_paragraph(tmp_path) -> None:
