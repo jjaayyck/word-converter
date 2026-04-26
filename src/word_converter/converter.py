@@ -47,6 +47,8 @@ class WordReportConverter:
     RECOMMENDATION_INTRO_LINE_SPACING_PT = 16
     HIGH_SCORE_INTRO_BLANK_LINE_SPACING_PT = 19
     DISCLAIMER_FONT_SIZE_PT = 10
+    LEFT_LOGO_BASENAME = "威力logo總表"
+    RIGHT_LOGO_BASENAME = "心理logo總表"
 
     LEGACY_MAIN_HEADERS = ["編號", "功能", "細胞解碼位點", "解碼型", "健康優勢評估", "健康優勢評分"]
     NEW_MAIN_HEADERS = ["編號", "心理天賦項目", "細胞解碼位點", "解碼型", "心理潛能優勢評估", "心理潛能優勢評分"]
@@ -83,6 +85,7 @@ class WordReportConverter:
         self._highlight_score_emphasis_text(document)
         self._apply_recommendation_format_overrides(document)
         self._apply_table_styles(document)
+        self._apply_first_page_logos(document, input_file.parent)
         self._apply_page_layout(document)
         self._apply_global_font(document)
 
@@ -932,6 +935,170 @@ class WordReportConverter:
             if any(token in text for token in disclaimer_tokens):
                 return True
         return False
+
+    def _apply_first_page_logos(self, document: "DocxDocument", input_dir: Path) -> None:
+        left_logo = self._resolve_logo_path(self.LEFT_LOGO_BASENAME, input_dir)
+        right_logo = self._resolve_logo_path(self.RIGHT_LOGO_BASENAME, input_dir)
+        if left_logo is None or right_logo is None:
+            missing = []
+            if left_logo is None:
+                missing.append(self.LEFT_LOGO_BASENAME)
+            if right_logo is None:
+                missing.append(self.RIGHT_LOGO_BASENAME)
+            raise FileNotFoundError(f"找不到 logo 圖檔：{', '.join(missing)}")
+
+        paragraph = self._find_first_body_logo_paragraph(document)
+        if paragraph is None:
+            raise ValueError("找不到正文第一個含圖片（w:drawing 或 w:pict）的段落，無法替換 logo。")
+        self._remove_paragraph_drawings(paragraph)
+        paragraph.text = ""
+
+        left_run = paragraph.add_run()
+        self._add_inline_picture(left_run, left_logo, width_cm=9.08, height_cm=2.48)
+
+        spacer = paragraph.add_run(" ")
+        spacer.font.size = None
+
+        right_run = paragraph.add_run()
+        inline_shape = self._add_inline_picture(right_run, right_logo, width_cm=10.24, height_cm=2.79)
+        anchor = self._convert_inline_to_floating_anchor(
+            inline_shape,
+            x_cm=8.76,
+            y_cm=0,
+            horizontal_relative="page",
+            vertical_relative="paragraph",
+            behind_text=False,
+        )
+        if anchor is None:
+            raise RuntimeError("右側 logo 轉換為 floating anchor 失敗。")
+
+    @staticmethod
+    def _resolve_logo_path(basename: str, input_dir: Path) -> Path | None:
+        exts = (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff")
+        search_dirs = [
+            input_dir,
+            Path.cwd(),
+            Path.cwd() / "assets",
+            Path.cwd() / "samples",
+            Path.cwd() / "samples" / "assets",
+        ]
+        for folder in search_dirs:
+            for ext in exts:
+                candidate = folder / f"{basename}{ext}"
+                if candidate.exists():
+                    return candidate
+        return None
+
+    @staticmethod
+    def _find_first_body_logo_paragraph(document: "DocxDocument") -> Any | None:
+        for paragraph in getattr(document, "paragraphs", []):
+            if not hasattr(paragraph, "_p"):
+                continue
+            if paragraph._p.xpath(".//w:drawing | .//w:pict"):
+                return paragraph
+        return None
+
+    @staticmethod
+    def _remove_paragraph_drawings(paragraph: Any) -> None:
+        if not hasattr(paragraph, "_p"):
+            return
+        p_elem = paragraph._p
+        for node in p_elem.xpath(".//w:drawing | .//w:pict"):
+            parent = node.getparent()
+            if parent is not None:
+                parent.remove(node)
+
+    @staticmethod
+    def _add_inline_picture(run: Any, image_path: Path, width_cm: float, height_cm: float) -> Any:
+        from docx.shared import Cm
+
+        picture = run.add_picture(str(image_path), width=Cm(width_cm), height=Cm(height_cm))
+        if picture is None:
+            raise RuntimeError(f"插入圖片失敗：{image_path}")
+        return picture
+
+    @staticmethod
+    def _convert_inline_to_floating_anchor(
+        inline_shape: Any,
+        x_cm: float,
+        y_cm: float,
+        horizontal_relative: str,
+        vertical_relative: str,
+        behind_text: bool,
+    ) -> Any:
+        from copy import deepcopy
+
+        from docx.oxml import OxmlElement
+        from docx.oxml.ns import qn
+        from docx.shared import Cm
+
+        inline = inline_shape._inline
+        graphic = inline.find(qn("a:graphic"))
+        extent = inline.find(qn("wp:extent"))
+        doc_pr = inline.find(qn("wp:docPr"))
+        c_nv_graphic_frame_pr = inline.find(qn("wp:cNvGraphicFramePr"))
+
+        if graphic is None or extent is None:
+            raise ValueError("inline 圖片 XML 缺少必要節點：a:graphic / wp:extent")
+        if doc_pr is None:
+            doc_pr = OxmlElement("wp:docPr")
+            doc_pr.set("id", "1")
+            doc_pr.set("name", "Picture 1")
+        if c_nv_graphic_frame_pr is None:
+            c_nv_graphic_frame_pr = OxmlElement("wp:cNvGraphicFramePr")
+
+        anchor = OxmlElement("wp:anchor")
+        anchor.set("simplePos", "0")
+        anchor.set("relativeHeight", "251658240")
+        anchor.set("behindDoc", "1" if behind_text else "0")
+        anchor.set("locked", "0")
+        anchor.set("layoutInCell", "1")
+        anchor.set("allowOverlap", "1")
+        anchor.set("distT", "0")
+        anchor.set("distB", "0")
+        anchor.set("distL", "0")
+        anchor.set("distR", "0")
+
+        simple_pos = OxmlElement("wp:simplePos")
+        simple_pos.set("x", "0")
+        simple_pos.set("y", "0")
+        anchor.append(simple_pos)
+
+        position_h = OxmlElement("wp:positionH")
+        position_h.set("relativeFrom", horizontal_relative)
+        pos_h_offset = OxmlElement("wp:posOffset")
+        pos_h_offset.text = str(int(Cm(x_cm)))
+        position_h.append(pos_h_offset)
+        anchor.append(position_h)
+
+        position_v = OxmlElement("wp:positionV")
+        position_v.set("relativeFrom", vertical_relative)
+        pos_v_offset = OxmlElement("wp:posOffset")
+        pos_v_offset.text = str(int(Cm(y_cm)))
+        position_v.append(pos_v_offset)
+        anchor.append(position_v)
+
+        extent_elem = OxmlElement("wp:extent")
+        extent_elem.set("cx", extent.get("cx", "0"))
+        extent_elem.set("cy", extent.get("cy", "0"))
+        anchor.append(extent_elem)
+
+        effect_extent = OxmlElement("wp:effectExtent")
+        effect_extent.set("l", "0")
+        effect_extent.set("t", "0")
+        effect_extent.set("r", "0")
+        effect_extent.set("b", "0")
+        anchor.append(effect_extent)
+
+        wrap_none = OxmlElement("wp:wrapNone")
+        anchor.append(wrap_none)
+
+        anchor.append(deepcopy(doc_pr))
+        anchor.append(deepcopy(c_nv_graphic_frame_pr))
+        anchor.append(deepcopy(graphic))
+
+        inline.getparent().replace(inline, anchor)
+        return anchor
 
     def _apply_page_layout(self, document: "DocxDocument") -> None:
         sections = list(getattr(document, "sections", []))

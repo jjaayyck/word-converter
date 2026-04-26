@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import pytest
+
 from src.word_converter.converter import WordReportConverter
 
 
@@ -697,11 +699,20 @@ def test_replace_recommendation_section_keeps_two_greetings_high_then_low_and_pa
 
 
 def test_convert_real_sample_docx_does_not_crash_and_keeps_two_greetings(tmp_path) -> None:
+    import base64
+    import shutil
     import re
     from docx import Document
 
     converter = WordReportConverter()
-    sample = Path("src/word_converter/samples/input/APT-01-009297.docx")
+    sample_src = Path("src/word_converter/samples/input/APT-01-009297.docx")
+    sample = tmp_path / sample_src.name
+    shutil.copy(sample_src, sample)
+    tiny_png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Z0r8AAAAASUVORK5CYII="
+    )
+    (tmp_path / "威力logo總表.png").write_bytes(tiny_png)
+    (tmp_path / "心理logo總表.png").write_bytes(tiny_png)
 
     result = converter.convert(sample, tmp_path)
 
@@ -711,3 +722,99 @@ def test_convert_real_sample_docx_does_not_crash_and_keeps_two_greetings(tmp_pat
     greeting_pattern = re.compile(r"^_+.+_+\s*貴賓您好：\s*$")
     greetings = [p.text.strip() for p in output_doc.paragraphs if greeting_pattern.match(p.text.strip())]
     assert len(greetings) == 2
+
+
+def test_apply_first_page_logos_inserts_two_body_images_with_valid_image_relationships(tmp_path) -> None:
+    import base64
+    import shutil
+    from docx import Document
+    from docx.oxml.ns import qn
+
+    converter = WordReportConverter()
+    sample_src = Path("src/word_converter/samples/input/APT-01-009297.docx")
+    sample = tmp_path / sample_src.name
+    shutil.copy(sample_src, sample)
+    left_png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Z0r8AAAAASUVORK5CYII="
+    )
+    right_png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAwMBAS5FYx8AAAAASUVORK5CYII="
+    )
+    (tmp_path / "威力logo總表.png").write_bytes(left_png)
+    (tmp_path / "心理logo總表.png").write_bytes(right_png)
+
+    result = converter.convert(sample, tmp_path)
+    output_doc = Document(str(result.output_path))
+
+    logo_paragraph = converter._find_first_body_logo_paragraph(output_doc)
+    assert logo_paragraph is not None
+
+    blips = logo_paragraph._p.xpath(".//a:blip")
+    assert len(blips) == 2
+    embed_ids = [blip.get(qn("r:embed")) for blip in blips]
+    assert all(embed_ids)
+    assert len(set(embed_ids)) == 2
+    for rel_id in embed_ids:
+        rel = output_doc.part.rels[rel_id]
+        assert "image" in rel.reltype
+
+
+def test_apply_first_page_logos_raises_when_no_body_image_paragraph(tmp_path) -> None:
+    import base64
+    from docx import Document
+
+    converter = WordReportConverter()
+    tiny_png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Z0r8AAAAASUVORK5CYII="
+    )
+    (tmp_path / "威力logo總表.png").write_bytes(tiny_png)
+    (tmp_path / "心理logo總表.png").write_bytes(tiny_png)
+
+    doc = Document()
+    doc.add_paragraph("這份文件沒有圖片段落")
+
+    with pytest.raises(ValueError, match="找不到正文第一個含圖片"):
+        converter._apply_first_page_logos(doc, tmp_path)
+
+
+def test_convert_inline_to_floating_anchor_works_without_cnvgraphicframepr_attribute() -> None:
+    from types import SimpleNamespace
+
+    from docx.oxml import parse_xml
+    from docx.oxml.ns import nsdecls
+
+    converter = WordReportConverter()
+    drawing = parse_xml(
+        f"""
+        <w:drawing {nsdecls('w', 'wp', 'a', 'pic', 'r')}>
+          <wp:inline>
+            <wp:extent cx="3685039" cy="1004563"/>
+            <wp:docPr id="1" name="Picture 1"/>
+            <a:graphic>
+              <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                <pic:pic/>
+              </a:graphicData>
+            </a:graphic>
+          </wp:inline>
+        </w:drawing>
+        """
+    )
+    inline = drawing[0]
+    inline_shape = SimpleNamespace(_inline=inline)
+
+    converter._convert_inline_to_floating_anchor(
+        inline_shape,
+        x_cm=8.76,
+        y_cm=0,
+        horizontal_relative="page",
+        vertical_relative="paragraph",
+        behind_text=False,
+    )
+
+    anchor = drawing[0]
+    assert anchor.tag.endswith("anchor")
+    assert anchor.get("behindDoc") == "0"
+    position_h = anchor.find("{http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing}positionH")
+    assert position_h is not None
+    assert position_h.get("relativeFrom") == "page"
+    assert anchor.find("{http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing}cNvGraphicFramePr") is not None
