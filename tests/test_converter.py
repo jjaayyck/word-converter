@@ -816,7 +816,7 @@ def test_convert_adds_recommendation_logo_once_per_recommendation_page(tmp_path)
     assert not low_intro_paragraph._p.xpath(".//w:pict | .//wp:inline")
 
 
-def test_low_score_logo_refresh_only_removes_images_within_low_score_scope(tmp_path) -> None:
+def test_insert_low_score_recommendations_rebuilds_section_and_keeps_following_images(tmp_path) -> None:
     import base64
     from docx import Document
 
@@ -836,19 +836,30 @@ def test_low_score_logo_refresh_only_removes_images_within_low_score_scope(tmp_p
     )
     low_old_image_paragraph = doc.add_paragraph("")
     low_old_image_paragraph.add_run().add_picture(str(old_image_path))
-    low_last_feature_paragraph = doc.add_paragraph("挑戰力")
+    feature_a_table = doc.add_table(rows=1, cols=1)
+    feature_a_table.rows[0].cells[0].text = "想像力"
+    suggestion_a_table = doc.add_table(rows=1, cols=1)
+    suggestion_a_table.rows[0].cells[0].text = "想像力原始建議內容"
+    feature_b_table = doc.add_table(rows=1, cols=1)
+    feature_b_table.rows[0].cells[0].text = "挑戰力"
+    suggestion_b_table = doc.add_table(rows=1, cols=1)
+    suggestion_b_table.rows[0].cells[0].text = "挑戰力原始建議內容"
     after_low_image_paragraph = doc.add_paragraph("")
     after_low_image_paragraph.add_run().add_picture(str(old_image_path))
 
-    converter._refresh_low_score_recommendation_logos(
+    converter._insert_low_score_recommendations_before_anchor(
         doc,
         low_intro,
         ["想像力", "挑戰力"],
         logo_path,
     )
 
-    assert not low_old_image_paragraph._p.xpath(".//w:drawing | .//w:pict")
+    all_inline_drawings = doc.element.xpath(".//wp:inline")
+    assert len(all_inline_drawings) == 1
     assert after_low_image_paragraph._p.xpath(".//w:drawing | .//w:pict")
+    all_table_text = [cell.text for table in doc.tables for row in table.rows for cell in row.cells]
+    assert any("想像力原始建議內容" in text for text in all_table_text)
+    assert any("挑戰力原始建議內容" in text for text in all_table_text)
     assert any(
         paragraph._p.xpath(
             ".//wp:anchor[@behindDoc='1'][wp:positionH[@relativeFrom='column']/wp:posOffset='0']"
