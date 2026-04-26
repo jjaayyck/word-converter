@@ -290,128 +290,104 @@ class WordReportConverter:
             self._append_page_break(document)
 
     def _normalize_recommendation_greetings(self, document: "DocxDocument", name: str) -> None:
-        paragraphs = list(getattr(document, "paragraphs", []))
-        if not paragraphs:
-            return
-
         greeting_text = self._build_recommendation_greeting(name)
         greeting_pattern = re.compile(r"^_+.+_+\s*貴賓您好：\s*$")
-        high_intro = next((p for p in paragraphs if "優勢評估分數較高" in getattr(p, "text", "")), None)
-        low_intro = next((p for p in paragraphs if "優勢評估分數較低" in getattr(p, "text", "")), None)
-        if high_intro is None or low_intro is None:
+
+        def _paragraph_key(paragraph: Any) -> Any:
+            return getattr(paragraph, "_p", getattr(paragraph, "_element", id(paragraph)))
+
+        def _state() -> tuple[list[Any], int | None, int | None]:
+            current = list(getattr(document, "paragraphs", []))
+            high_idx = next((idx for idx, p in enumerate(current) if "優勢評估分數較高" in getattr(p, "text", "")), None)
+            low_idx = next((idx for idx, p in enumerate(current) if "優勢評估分數較低" in getattr(p, "text", "")), None)
+            return current, high_idx, low_idx
+
+        current, high_idx, low_idx = _state()
+        if high_idx is None or low_idx is None:
             return
 
         high_greeting = next(
             (
-                p
-                for p in reversed(paragraphs[: paragraphs.index(high_intro)])
-                if greeting_pattern.match(getattr(p, "text", "").strip())
+                idx
+                for idx in range(high_idx - 1, -1, -1)
+                if greeting_pattern.match(getattr(current[idx], "text", "").strip())
             ),
             None,
         )
         if high_greeting is None:
             self._insert_paragraph_before_anchor(
                 document,
-                high_intro,
+                current[high_idx],
                 greeting_text,
                 font_size_pt=self.RECOMMENDATION_GREETING_FONT_SIZE_PT,
             )
-            paragraphs = list(getattr(document, "paragraphs", []))
-            high_intro = next((p for p in paragraphs if "優勢評估分數較高" in getattr(p, "text", "")), high_intro)
-            low_intro = next((p for p in paragraphs if "優勢評估分數較低" in getattr(p, "text", "")), low_intro)
+            current, high_idx, low_idx = _state()
+            if high_idx is None or low_idx is None:
+                return
             high_greeting = next(
                 (
-                    p
-                    for p in reversed(paragraphs[: paragraphs.index(high_intro)])
-                    if greeting_pattern.match(getattr(p, "text", "").strip())
+                    idx
+                    for idx in range(high_idx - 1, -1, -1)
+                    if greeting_pattern.match(getattr(current[idx], "text", "").strip())
                 ),
                 None,
             )
+            if high_greeting is None:
+                return
 
+        high_key = _paragraph_key(current[high_greeting])
         low_greeting = next(
             (
-                p
-                for p in reversed(paragraphs[: paragraphs.index(low_intro)])
-                if greeting_pattern.match(getattr(p, "text", "").strip())
+                idx
+                for idx in range(low_idx - 1, -1, -1)
+                if greeting_pattern.match(getattr(current[idx], "text", "").strip())
+                and _paragraph_key(current[idx]) != high_key
             ),
             None,
         )
-        if low_greeting is None or low_greeting is high_greeting:
+        if low_greeting is None:
             self._insert_paragraph_before_anchor(
                 document,
-                low_intro,
+                current[low_idx],
                 greeting_text,
                 font_size_pt=self.RECOMMENDATION_GREETING_FONT_SIZE_PT,
             )
-            paragraphs = list(getattr(document, "paragraphs", []))
-            low_intro = next((p for p in paragraphs if "優勢評估分數較低" in getattr(p, "text", "")), low_intro)
+            current, _, low_idx = _state()
+            if low_idx is None:
+                return
             low_greeting = next(
                 (
-                    p
-                    for p in reversed(paragraphs[: paragraphs.index(low_intro)])
-                    if greeting_pattern.match(getattr(p, "text", "").strip())
+                    idx
+                    for idx in range(low_idx - 1, -1, -1)
+                    if greeting_pattern.match(getattr(current[idx], "text", "").strip())
+                    and _paragraph_key(current[idx]) != high_key
                 ),
                 None,
             )
+            if low_greeting is None:
+                return
 
-        for paragraph in paragraphs:
+        selected = {_paragraph_key(current[high_greeting]), _paragraph_key(current[low_greeting])}
+        for paragraph in list(getattr(document, "paragraphs", [])):
             text = getattr(paragraph, "text", "").strip()
             if not greeting_pattern.match(text):
                 continue
-            if paragraph is high_greeting or paragraph is low_greeting:
+            if _paragraph_key(paragraph) in selected:
                 paragraph.text = greeting_text
                 self._style_paragraph_text(paragraph, font_size_pt=self.RECOMMENDATION_GREETING_FONT_SIZE_PT)
                 continue
             self._remove_paragraph(document, paragraph)
 
-        paragraphs = list(getattr(document, "paragraphs", []))
-        high_intro = next((p for p in paragraphs if "優勢評估分數較高" in getattr(p, "text", "")), None)
-        low_intro = next((p for p in paragraphs if "優勢評估分數較低" in getattr(p, "text", "")), None)
-        if high_intro is None or low_intro is None:
-            return
-        high_intro_index = paragraphs.index(high_intro)
-        low_intro_index = paragraphs.index(low_intro)
-        has_high_greeting_before_intro = any(
-            greeting_pattern.match(getattr(p, "text", "").strip()) for p in paragraphs[:high_intro_index]
-        )
-        if has_high_greeting_before_intro:
-            return
-        movable = next(
-            (
-                p
-                for p in paragraphs[high_intro_index + 1 : low_intro_index]
-                if greeting_pattern.match(getattr(p, "text", "").strip())
-            ),
-            None,
-        )
-        if movable is None:
-            return
-        if hasattr(document, "paragraphs") and isinstance(document.paragraphs, list):
-            paragraphs_list = document.paragraphs
-            move_index = paragraphs_list.index(movable)
-            moving = paragraphs_list.pop(move_index)
-            if high_intro in paragraphs_list:
-                intro_index = paragraphs_list.index(high_intro)
-                paragraphs_list.insert(intro_index, moving)
-            else:
-                paragraphs_list.insert(0, moving)
-            moving.text = greeting_text
-            self._style_paragraph_text(moving, font_size_pt=self.RECOMMENDATION_GREETING_FONT_SIZE_PT)
-            return
-
-        self._insert_paragraph_before_anchor(
-            document,
-            high_intro,
-            greeting_text,
-            font_size_pt=self.RECOMMENDATION_GREETING_FONT_SIZE_PT,
-        )
-        self._remove_paragraph(document, movable)
-
     @staticmethod
     def _remove_paragraph(document: "DocxDocument", paragraph: Any) -> None:
-        if hasattr(document, "paragraphs") and isinstance(document.paragraphs, list) and paragraph in document.paragraphs:
-            document.paragraphs.remove(paragraph)
-            return
+        if hasattr(document, "paragraphs") and isinstance(document.paragraphs, list):
+            for index, current in enumerate(document.paragraphs):
+                if current is paragraph:
+                    del document.paragraphs[index]
+                    return
+            if paragraph in document.paragraphs:
+                document.paragraphs.remove(paragraph)
+                return
         if hasattr(paragraph, "_element"):
             p = paragraph._element
             p.getparent().remove(p)

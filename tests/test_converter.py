@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from src.word_converter.converter import WordReportConverter
 
@@ -550,3 +551,20 @@ def test_recommendation_section_applies_summary_emphasis_and_non_placeholder_sug
 
     all_table_text = [cell.text for t in doc.tables for row in t.rows for cell in row.cells]
     assert "◆ 建議內容可依實際需求補充。" not in all_table_text
+
+
+def test_convert_real_sample_docx_does_not_crash_and_keeps_two_greetings(tmp_path) -> None:
+    import re
+    from docx import Document
+
+    converter = WordReportConverter()
+    sample = Path("src/word_converter/samples/input/APT-01-009297.docx")
+
+    result = converter.convert(sample, tmp_path)
+
+    assert result.output_path.exists()
+
+    output_doc = Document(str(result.output_path))
+    greeting_pattern = re.compile(r"^_+.+_+\s*貴賓您好：\s*$")
+    greetings = [p.text.strip() for p in output_doc.paragraphs if greeting_pattern.match(p.text.strip())]
+    assert len(greetings) == 2
