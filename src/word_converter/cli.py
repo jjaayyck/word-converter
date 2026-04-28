@@ -9,6 +9,8 @@ from .config import CELL_CODE_MAPPING, FIXED_TEXT_MAPPING, TABLE_HEADER_MAPPING
 from .converter import WordReportConverter
 from .mapping_loader import load_mapping_overrides
 
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tif", ".tiff", ".webp"}
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="舊版 Word 報告轉新版格式工具")
@@ -27,6 +29,30 @@ def build_parser() -> argparse.ArgumentParser:
         help="可選：JSON 對照表設定檔（覆蓋預設 mapping）",
     )
     return parser
+
+
+def _is_image_file(path: Path) -> bool:
+    return path.suffix.lower() in IMAGE_EXTENSIONS
+
+
+def _collect_input_files(input_path: Path) -> tuple[list[Path], list[Path]]:
+    if input_path.is_dir():
+        docx_files: list[Path] = []
+        skipped_images: list[Path] = []
+        for path in sorted(input_path.iterdir()):
+            if not path.is_file():
+                continue
+            suffix = path.suffix.lower()
+            if suffix == ".docx":
+                docx_files.append(path)
+            elif _is_image_file(path):
+                skipped_images.append(path)
+        return docx_files, skipped_images
+
+    if _is_image_file(input_path):
+        return [], [input_path]
+
+    return [input_path], []
 
 
 def main() -> None:
@@ -49,13 +75,14 @@ def main() -> None:
     )
     input_path = args.input
     results = []
+    input_files, skipped_images = _collect_input_files(input_path)
 
-    if input_path.is_dir():
-        input_files = sorted(path for path in input_path.iterdir() if path.suffix.lower() == ".docx")
-        if not input_files:
-            raise FileNotFoundError(f"在資料夾中找不到任何 .docx 檔案: {input_path}")
-    else:
-        input_files = [input_path]
+    for image_path in skipped_images:
+        print(f"略過圖片檔: {image_path}")
+
+    if not input_files:
+        print("沒有可處理的 .docx 檔案，已結束。")
+        return
 
     for input_file in input_files:
         results.append(converter.convert(input_file, args.output_dir))
