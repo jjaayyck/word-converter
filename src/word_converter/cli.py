@@ -55,6 +55,22 @@ def _collect_input_files(input_path: Path) -> tuple[list[Path], list[Path]]:
     return [input_path], []
 
 
+def _partition_pending_files(
+    input_files: list[Path], output_dir: Path, converter: WordReportConverter
+) -> tuple[list[Path], list[tuple[Path, Path]]]:
+    pending_files: list[Path] = []
+    already_processed: list[tuple[Path, Path]] = []
+
+    for input_file in input_files:
+        predicted_output_path = converter.preview_output_path(input_file, output_dir)
+        if predicted_output_path.exists():
+            already_processed.append((input_file, predicted_output_path))
+        else:
+            pending_files.append(input_file)
+
+    return pending_files, already_processed
+
+
 def main() -> None:
     args = build_parser().parse_args()
 
@@ -84,11 +100,17 @@ def main() -> None:
         print("沒有可處理的 .docx 檔案，已結束。")
         return
 
+    input_files, already_processed = _partition_pending_files(input_files, args.output_dir, converter)
+
+    for input_file, existing_output_path in already_processed:
+        print(f"已處理過，略過: {input_file} -> {existing_output_path}")
+
     for input_file in input_files:
         results.append(converter.convert(input_file, args.output_dir))
 
     print("轉換完成")
-    print(f"共處理 {len(results)} 份文件")
+    print(f"本次新處理 {len(results)} 份文件")
+    print(f"已處理過並略過 {len(already_processed)} 份文件")
     for result in results:
         print(f"- 姓名: {result.name} | 送檢編號: {result.sample_id} | 輸出檔案: {result.output_path}")
 

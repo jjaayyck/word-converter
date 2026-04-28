@@ -61,6 +61,8 @@ PYTHONPATH=src python -m word_converter.main samples/input/APT-01-009297.docx -o
 PYTHONPATH=src python -m word_converter.main samples/input -o output
 ```
 
+批次模式下若發現輸出檔已存在，會自動判定為「已處理過」並略過該檔案，終端會列出「本次新處理」與「已處理過並略過」數量。
+
 
 ## 比對舊版/新版樣本格式
 

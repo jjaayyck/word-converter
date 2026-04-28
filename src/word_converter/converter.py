@@ -103,6 +103,17 @@ class WordReportConverter:
             sample_id=sample_id,
         )
 
+    def preview_output_path(self, input_path: str | Path, output_dir: str | Path) -> Path:
+        """Infer converted output path without writing files."""
+        input_file = Path(input_path)
+        if not input_file.exists():
+            raise FileNotFoundError(f"Input file not found: {input_file}")
+
+        document = self._load_document(input_file)
+        name, sample_id = self._extract_identity(document)
+        output_dir_path = Path(output_dir)
+        return output_dir_path / self._build_output_filename(sample_id=sample_id, name=name)
+
     @staticmethod
     def _load_document(input_file: Path) -> Any:
         try:
