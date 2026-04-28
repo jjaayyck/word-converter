@@ -46,13 +46,19 @@ pip install -r requirements.txt
 ### 2) 執行轉換
 
 ```bash
-PYTHONPATH=src python -m word_converter.main <輸入檔案.docx> -o <輸出資料夾>
+PYTHONPATH=src python -m word_converter.main <輸入檔案.docx或資料夾> -o <輸出資料夾>
 ```
 
 例如：
 
 ```bash
 PYTHONPATH=src python -m word_converter.main samples/input/APT-01-009297.docx -o output
+```
+
+一次處理整個資料夾內所有 `.docx`：
+
+```bash
+PYTHONPATH=src python -m word_converter.main samples/input -o output
 ```
 
 

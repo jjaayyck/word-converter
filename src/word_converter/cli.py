@@ -12,7 +12,7 @@ from .mapping_loader import load_mapping_overrides
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="舊版 Word 報告轉新版格式工具")
-    parser.add_argument("input", type=Path, help="輸入 .docx 檔案路徑")
+    parser.add_argument("input", type=Path, help="輸入 .docx 檔案路徑或資料夾路徑")
     parser.add_argument(
         "-o",
         "--output-dir",
@@ -47,12 +47,23 @@ def main() -> None:
         cell_code_mapping=code_mapping,
         fixed_text_mapping=text_mapping,
     )
-    result = converter.convert(args.input, args.output_dir)
+    input_path = args.input
+    results = []
+
+    if input_path.is_dir():
+        input_files = sorted(path for path in input_path.iterdir() if path.suffix.lower() == ".docx")
+        if not input_files:
+            raise FileNotFoundError(f"在資料夾中找不到任何 .docx 檔案: {input_path}")
+    else:
+        input_files = [input_path]
+
+    for input_file in input_files:
+        results.append(converter.convert(input_file, args.output_dir))
 
     print("轉換完成")
-    print(f"姓名: {result.name}")
-    print(f"送檢編號: {result.sample_id}")
-    print(f"輸出檔案: {result.output_path}")
+    print(f"共處理 {len(results)} 份文件")
+    for result in results:
+        print(f"- 姓名: {result.name} | 送檢編號: {result.sample_id} | 輸出檔案: {result.output_path}")
 
 
 if __name__ == "__main__":
