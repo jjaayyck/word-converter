@@ -93,7 +93,8 @@ class WordReportConverter:
 
         output_dir_path = Path(output_dir)
         output_dir_path.mkdir(parents=True, exist_ok=True)
-        output_path = output_dir_path / self._build_output_filename(sample_id=sample_id, name=name)
+        item_count = self._count_main_table_items(document)
+        output_path = output_dir_path / self._build_output_filename(sample_id=sample_id, name=name, item_count=item_count)
         document.save(str(output_path))
 
         return ConversionResult(
@@ -112,7 +113,8 @@ class WordReportConverter:
         document = self._load_document(input_file)
         name, sample_id = self._extract_identity(document)
         output_dir_path = Path(output_dir)
-        return output_dir_path / self._build_output_filename(sample_id=sample_id, name=name)
+        item_count = self._count_main_table_items(document)
+        return output_dir_path / self._build_output_filename(sample_id=sample_id, name=name, item_count=item_count)
 
     @staticmethod
     def _load_document(input_file: Path) -> Any:
@@ -237,10 +239,10 @@ class WordReportConverter:
                 if not feature_name or not old_code:
                     continue
 
+                self._set_row_height(row, self.GENE_ROW_HEIGHT_EMU)
                 new_code = self.cell_code_mapping.get((feature_name, old_code))
                 if new_code:
                     self._replace_cell_text(row.cells[2], new_code)
-                    self._set_row_height(row, self.GENE_ROW_HEIGHT_EMU)
                     replaced_count += 1
                 elif feature_name not in seen_unmapped:
                     seen_unmapped.add(feature_name)
@@ -1336,10 +1338,28 @@ class WordReportConverter:
     def _sanitize_filename_part(value: str) -> str:
         return re.sub(r'[\\/:*?"<>|\s]+', "", value)
 
-    def _build_output_filename(self, sample_id: str, name: str) -> str:
+    def _count_main_table_items(self, document: "DocxDocument") -> int:
+        for table in document.tables:
+            header_cells = table.rows[0].cells if table.rows else []
+            normalized_headers = [self._normalize_label(cell.text.strip()) for cell in header_cells]
+            if not self._is_main_table_headers(normalized_headers):
+                continue
+
+            count = 0
+            for row in table.rows[1:]:
+                if len(row.cells) < 3:
+                    continue
+                feature_name = row.cells[1].text.strip()
+                code = row.cells[2].text.strip()
+                if feature_name and code:
+                    count += 1
+            return count
+        return 0
+
+    def _build_output_filename(self, sample_id: str, name: str, item_count: int) -> str:
         sid = self._sanitize_filename_part(sample_id)
         person = self._sanitize_filename_part(name)
-        return f"台-{sid}_{person}-天賦30項.docx"
+        return f"台-{sid}_{person}-天賦{item_count}項.docx"
 
     GENE_ROW_HEIGHT_EMU = int(1.9 * 360000)
     TOP_MARGIN_EMU = int(0.75 * 360000)

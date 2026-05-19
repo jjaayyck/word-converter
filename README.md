@@ -86,7 +86,7 @@ python scripts/compare_sample_formats.py --json
 ## 輸出檔名規則
 
 ```text
-台-{送檢編號}_{姓名}-天賦30項.docx
+台-{送檢編號}_{姓名}-天賦{檢測項目數}項.docx
 ```
 
 ## 測試方式

@@ -108,10 +108,19 @@ def test_extract_sample_id_from_table() -> None:
 def test_output_filename_format() -> None:
     converter = WordReportConverter()
 
-    output = converter._build_output_filename(sample_id="APT-01-00XXXX", name="王曉明")
+    output = converter._build_output_filename(sample_id="APT-01-00XXXX", name="王曉明", item_count=30)
 
     assert output == "台-APT-01-00XXXX_王曉明-天賦30項.docx"
 
+
+
+
+def test_count_main_table_items() -> None:
+    converter = WordReportConverter()
+    main_table = _build_main_table()
+    doc = FakeDocument(paragraphs=[], tables=[main_table])
+
+    assert converter._count_main_table_items(doc) == 6
 
 def test_convert_table_headers_replaces_main_table_titles() -> None:
     converter = WordReportConverter()
@@ -198,6 +207,8 @@ def test_convert_cell_codes_collects_unmapped_features() -> None:
     assert converter.last_cell_code_report["main_table_index"] == 0
     assert converter.last_cell_code_report["replaced_count"] == 6
     assert converter.last_cell_code_report["unmapped_features"] == ["不存在功能"]
+    assert main_table.rows[7].height == int(1.9 * 360000)
+    assert main_table.rows[7].height_rule == 2
 
 
 def test_apply_fixed_text_replaces_declaration_and_score_item_texts() -> None:
